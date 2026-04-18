@@ -11,7 +11,7 @@ import requests
 # ---------------------------------------------------------------------------
 # API endpoint
 # ---------------------------------------------------------------------------
-GETLATE_BASE_URL = "https://api.getlate.dev/v1"
+GETLATE_BASE_URL = "https://getlate.dev/api/v1"
 
 
 def _get_headers():

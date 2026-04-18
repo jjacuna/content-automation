@@ -29,7 +29,7 @@ def scrape_url(url, emit_event=None):
     api_key = os.getenv("FIRECRAWL_API_KEY")
 
     if not api_key:
-        emit("scrape", "progress", "No FireCrawl API key — returning demo content")
+        emit("scrape", "progress", "No FireCrawl API key — using demo content. Add your key in Settings to scrape real articles from the web!")
         return {
             "markdown": (
                 f"# Demo Article\n\n"
@@ -45,7 +45,7 @@ def scrape_url(url, emit_event=None):
             "demo": True
         }
 
-    emit("scrape", "progress", f"Sending URL to FireCrawl: {url}")
+    emit("scrape", "progress", f"Sending your link to FireCrawl — it visits the page, strips out all the ads and menus, and gives us just the article text.")
 
     try:
         # Import here so the app doesn't crash if firecrawl-py isn't installed
@@ -53,7 +53,7 @@ def scrape_url(url, emit_event=None):
 
         fc = FirecrawlApp(api_key=api_key)
 
-        emit("scrape", "progress", "Waiting for FireCrawl response...")
+        emit("scrape", "progress", "FireCrawl is reading the webpage now... (this usually takes 1-3 seconds)")
         result = fc.scrape_url(url, params={"formats": ["markdown"]})
 
         # Extract the content from the response
@@ -64,7 +64,7 @@ def scrape_url(url, emit_event=None):
         # Calculate word count
         word_count = len(markdown.split()) if markdown else 0
 
-        emit("scrape", "progress", f"Received {word_count:,} words from {title[:60]}")
+        emit("scrape", "progress", f"Got it! Pulled {word_count:,} words from \"{title[:50]}\". Clean text, no junk — ready for AI to rewrite.")
 
         return {
             "markdown": markdown,
