@@ -453,7 +453,7 @@ function createApp() {
             this.pipelineVisible = true;
             this.resetPipeline();
 
-            this.addLog('system', 'started', 'Pipeline initiated. Connecting to server...');
+            this.addLog('system', 'started', 'Starting up your content machine! Connecting to the server...');
 
             fetch('/api/generate', {
                 method: 'POST',
@@ -478,7 +478,7 @@ function createApp() {
                             this.generating = false;
                             if (!this.pipelineError) {
                                 this.pipelineComplete = true;
-                                this.addLog('system', 'complete', 'Pipeline finished successfully.');
+                                this.addLog('system', 'complete', 'All done! Your content is ready. Check out the results below.');
                                 showToast('Content generated successfully!', 'success');
                             }
                             // Re-init lucide icons for any new elements
@@ -506,7 +506,7 @@ function createApp() {
                     }).catch(err => {
                         this.generating = false;
                         this.pipelineError = true;
-                        this.addLog('system', 'error', 'Stream connection lost: ' + err.message);
+                        this.addLog('system', 'error', 'Lost connection to the server: ' + err.message + '. Try refreshing the page.');
                         showToast('Connection error', 'error');
                     });
                 };
@@ -515,7 +515,7 @@ function createApp() {
             }).catch(err => {
                 this.generating = false;
                 this.pipelineError = true;
-                this.addLog('system', 'error', 'Failed to connect: ' + err.message);
+                this.addLog('system', 'error', 'Could not reach the server: ' + err.message + '. Make sure the app is running.');
                 showToast('Failed to start generation', 'error');
             });
         },

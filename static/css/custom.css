@@ -511,10 +511,10 @@ textarea.input {
 /* ── Pipeline X-Ray ────────────────────────────────────── */
 .pipeline-bar {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     gap: 0;
-    padding: 32px 16px;
+    padding: 40px 24px 24px;
     overflow-x: auto;
 }
 
@@ -522,19 +522,20 @@ textarea.input {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     position: relative;
-    min-width: 80px;
+    min-width: 90px;
+    flex-shrink: 0;
 }
 
 .pipeline-node {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid var(--border);
+    border: 2.5px solid var(--border);
     background: var(--bg-primary);
     color: var(--text-subtle);
     font-size: 16px;
@@ -545,17 +546,18 @@ textarea.input {
 
 .pipeline-stage-label {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
     color: var(--text-subtle);
     transition: color 0.3s;
 }
 
 .pipeline-stage-duration {
     font-size: 10px;
-    color: var(--text-subtle);
+    color: var(--gold-champagne);
     font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-weight: 500;
 }
 
 /* Stage States */
@@ -568,11 +570,12 @@ textarea.input {
 .pipeline-stage.active .pipeline-node {
     border-color: var(--gold);
     color: var(--gold);
-    box-shadow: 0 0 0 4px var(--gold-tint), 0 0 20px rgba(199, 163, 90, 0.2);
+    box-shadow: 0 0 0 5px var(--gold-tint), 0 0 24px rgba(199, 163, 90, 0.25);
     animation: pipeline-pulse 2s ease-in-out infinite;
 }
 .pipeline-stage.active .pipeline-stage-label {
     color: var(--gold);
+    font-weight: 700;
 }
 
 .pipeline-stage.completed .pipeline-node {
@@ -596,39 +599,41 @@ textarea.input {
 
 .pipeline-stage.skipped .pipeline-node {
     border-color: var(--border);
-    opacity: 0.4;
+    opacity: 0.35;
 }
 .pipeline-stage.skipped .pipeline-stage-label {
     color: var(--text-subtle);
     text-decoration: line-through;
-    opacity: 0.4;
+    opacity: 0.35;
 }
 
-/* Connecting Lines */
+/* Connecting Lines — centered vertically with nodes */
 .pipeline-connector {
-    width: 48px;
-    height: 2px;
+    width: 40px;
+    height: 3px;
     background: var(--border);
-    position: relative;
     flex-shrink: 0;
-    margin-top: -20px;
-    align-self: flex-start;
-    margin-top: 19px;
+    border-radius: 2px;
+    /* Vertically center with the 48px node: (48/2) - (3/2) = 22.5px from top */
+    margin-top: 23px;
 }
 
 .pipeline-connector.completed {
     background: var(--success);
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.3);
 }
 
 .pipeline-connector.active {
     background: linear-gradient(90deg, var(--gold), var(--gold-champagne), var(--gold));
     background-size: 200% 100%;
     animation: connector-flow 1.5s ease-in-out infinite;
+    box-shadow: 0 0 8px rgba(199, 163, 90, 0.25);
 }
 
 .pipeline-connector.skipped {
     background: var(--border);
-    opacity: 0.3;
+    opacity: 0.25;
+    border-style: dashed;
 }
 
 /* ── Live Log Feed ─────────────────────────────────────── */

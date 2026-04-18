@@ -79,7 +79,7 @@ def generate_script(article_text_or_idea, platform="instagram", input_type="idea
     client = _get_client()
 
     if not client:
-        emit("script", "progress", "No OpenRouter API key — returning demo content")
+        emit("script", "progress", "No OpenRouter API key set yet — using demo content so you can see how the pipeline flows. Add your key in Settings to use real AI!")
         return _demo_response("Script generation requires an OpenRouter API key")
 
     char_limit = PLATFORM_LIMITS.get(platform, 2200)
@@ -115,7 +115,7 @@ Create a compelling post that captures the key insight from this article."""
 
 Make it engaging, informative, and ready to publish."""
 
-    emit("script", "progress", f"Calling OpenRouter ({DEFAULT_MODEL})...")
+    emit("script", "progress", f"Calling OpenRouter → using the {DEFAULT_MODEL} model. OpenRouter is like a phone operator — it connects us to whichever AI model we pick.")
 
     try:
         response = client.chat.completions.create(
@@ -142,7 +142,7 @@ Make it engaging, informative, and ready to publish."""
         }
 
         emit("script", "progress",
-             f"Generated {result['tokens_out']} tokens (cost: ${result['cost']:.4f})")
+             f"AI wrote back! {result['tokens_out']} tokens (think of tokens like word-pieces). This call cost ${result['cost']:.4f} — pennies per post.")
 
         return result
 
@@ -166,7 +166,7 @@ def generate_image_prompt(script_text, emit_event=None):
     client = _get_client()
 
     if not client:
-        emit("image", "progress", "No OpenRouter API key — returning demo image prompt")
+        emit("image", "progress", "No OpenRouter API key — using a demo image prompt. Add your key in Settings to get AI-generated image descriptions!")
         return _demo_response("Image prompt generation requires an OpenRouter API key")
 
     system_prompt = """You are an expert at creating AI image generation prompts.
@@ -183,7 +183,7 @@ RULES:
 
 OUTPUT FORMAT: Return ONLY the image prompt. No explanations."""
 
-    emit("image", "progress", "Generating image prompt from script...")
+    emit("image", "progress", "Asking AI to describe a picture that matches your post — this description is called a 'prompt' and it tells the image AI exactly what to draw.")
 
     try:
         response = client.chat.completions.create(
@@ -208,7 +208,7 @@ OUTPUT FORMAT: Return ONLY the image prompt. No explanations."""
             "demo": False
         }
 
-        emit("image", "progress", f"Image prompt ready ({result['tokens_out']} tokens)")
+        emit("image", "progress", f"Image description is ready ({result['tokens_out']} tokens). Now sending it to Kie.ai to actually create the picture...")
         return result
 
     except Exception as e:
@@ -234,7 +234,7 @@ def generate_captions(script_text, platforms=None, emit_event=None):
         platforms = ["instagram", "tiktok", "linkedin"]
 
     if not client:
-        emit("caption", "progress", "No OpenRouter API key — returning demo captions")
+        emit("caption", "progress", "No OpenRouter API key — using demo captions. Add your key in Settings to get real AI-written captions for each platform!")
         demo_captions = {p: f"[DEMO] Caption for {p}" for p in platforms}
         return {
             "captions": demo_captions,
@@ -261,7 +261,7 @@ OUTPUT FORMAT: Return valid JSON with platform names as keys and captions as val
 Example: {{"instagram": "caption here...", "tiktok": "caption here..."}}
 Return ONLY the JSON. No markdown code blocks, no explanations."""
 
-    emit("caption", "progress", f"Generating captions for {', '.join(platforms)}...")
+    emit("caption", "progress", f"Asking AI to write custom captions for {', '.join(platforms)}. Each platform gets its own version — different length, hashtags, and style.")
 
     try:
         response = client.chat.completions.create(
@@ -301,7 +301,7 @@ Return ONLY the JSON. No markdown code blocks, no explanations."""
         }
 
         emit("caption", "progress",
-             f"Captions ready for {len(captions)} platforms (cost: ${result['cost']:.4f})")
+             f"Got captions for {len(captions)} platforms! Cost: ${result['cost']:.4f}. Notice how one AI call can output multiple results — that's efficiency!")
 
         return result
 

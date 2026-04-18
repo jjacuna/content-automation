@@ -58,7 +58,7 @@ def generate_image(prompt, emit_event=None):
     headers = _get_headers()
 
     if not headers:
-        emit("image", "progress", "No KIE_API_KEY — returning demo image")
+        emit("image", "progress", "No Kie.ai API key — using a placeholder image. Add your key in Settings to generate real AI images!")
         return {
             "image_url": "https://placehold.co/1024x1024/17181C/C7A35A?text=Demo+Image",
             "task_id": "demo_task",
@@ -68,7 +68,7 @@ def generate_image(prompt, emit_event=None):
         }
 
     # -- Step 1: Create the task --
-    emit("image", "progress", "Creating image task on Kie.ai...")
+    emit("image", "progress", "Sending the image description to Kie.ai. Unlike the text AI (which responds instantly), image AI takes time — so we create a 'task' and check back on it.")
 
     try:
         create_response = requests.post(
@@ -92,10 +92,10 @@ def generate_image(prompt, emit_event=None):
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
 
-        emit("image", "progress", f"Task created: {task_id}")
+        emit("image", "progress", f"Task created! ID: {task_id}. Now we wait and keep checking — this is called 'polling'. Watch below as we ask 'is it ready yet?' every 2 seconds.")
 
     except requests.exceptions.RequestException as e:
-        emit("image", "error", f"Failed to create image task: {str(e)}")
+        emit("image", "error", f"Couldn't reach Kie.ai: {str(e)}. Check your internet connection or API key.")
         raise
 
     # -- Step 2: Poll for completion --
@@ -130,7 +130,7 @@ def generate_image(prompt, emit_event=None):
 
             # -- Emit polling events (the X-ray magic!) --
             emit("image", "polling",
-                 f"Polling... attempt {attempt}, status: {state}",
+                 f"Checking on our image... attempt #{attempt} — Kie.ai says: \"{state}\" ({round(elapsed)}s so far)",
                  {"attempt": attempt, "state": state, "elapsed": round(elapsed, 1)})
 
             if state in ("success", "completed", "done"):
@@ -152,7 +152,7 @@ def generate_image(prompt, emit_event=None):
                 cost = 0.09  # Approximate cost per image
 
                 emit("image", "progress",
-                     f"Complete! Image ready in {duration}s")
+                     f"The image is done! Kie.ai finished rendering it in {duration}s. Downloading the file now...")
 
                 return {
                     "image_url": image_url,
@@ -197,7 +197,7 @@ def generate_video(prompt, emit_event=None):
     headers = _get_headers()
 
     if not headers:
-        emit("video", "progress", "No KIE_API_KEY — returning demo video")
+        emit("video", "progress", "No Kie.ai API key — using a placeholder video. Add your key in Settings!")
         return {
             "video_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Demo+Video",
             "task_id": "demo_video_task",
@@ -207,7 +207,7 @@ def generate_video(prompt, emit_event=None):
         }
 
     # -- Step 1: Create the video task --
-    emit("video", "progress", "Creating video task on Kie.ai (Veo 3.1)...")
+    emit("video", "progress", "Sending prompt to Kie.ai's Veo 3.1 video model. Videos take WAY longer than images because they have hundreds of frames to generate.")
 
     try:
         create_response = requests.post(
@@ -229,7 +229,7 @@ def generate_video(prompt, emit_event=None):
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
 
-        emit("video", "progress", f"Video task created: {task_id}")
+        emit("video", "progress", f"Video task created! ID: {task_id}. Polling every 20 seconds (notice this is slower than image polling — that's because video takes longer).")
 
     except requests.exceptions.RequestException as e:
         emit("video", "error", f"Failed to create video task: {str(e)}")
@@ -275,7 +275,7 @@ def generate_video(prompt, emit_event=None):
 
             # -- Emit polling events (students see the long wait!) --
             emit("video", "polling",
-                 f"Polling video... attempt {attempt}, status: {state} ({round(elapsed)}s elapsed)",
+                 f"Checking on our video... attempt #{attempt} — status: \"{state}\" ({round(elapsed)}s so far). Videos can take 1-5 minutes.",
                  {"attempt": attempt, "state": state, "elapsed": round(elapsed, 1)})
 
             if state in ("success", "completed", "done"):
@@ -299,7 +299,7 @@ def generate_video(prompt, emit_event=None):
                 cost = 0.19  # Approximate cost per video
 
                 emit("video", "progress",
-                     f"Complete! Video ready in {duration}s")
+                     f"Video is done! Took {duration}s — much longer than the image, right? That's normal. Downloading now...")
 
                 return {
                     "video_url": video_url,

@@ -54,7 +54,7 @@ def run_pipeline(content_id, emit_event):
     pipeline_start = time.time()
 
     emit_event("pipeline", "started",
-               f"Starting pipeline for: {item['input_text'][:80]}...",
+               f"Kicking off your content machine! We'll turn your {'link' if item['input_type'] == 'url' else 'idea'} into a ready-to-post piece of content.",
                {"content_id": content_id, "input_type": item["input_type"]})
 
     # Update status to processing
@@ -103,14 +103,14 @@ def run_pipeline(content_id, emit_event):
         update_content_item(content_id, status="ready", cost_total=total_cost)
 
         emit_event("pipeline", "complete",
-                   f"Pipeline complete! Total: {total_duration}s, Cost: ${total_cost:.4f}",
+                   f"All done! Your content is ready to post. The whole thing took {total_duration}s and cost ${total_cost:.4f}. That's the power of automation — what would take you an hour, the machine did in under a minute.",
                    {"total_duration": total_duration, "total_cost": total_cost})
 
     except Exception as e:
         # If any stage fails, mark the item as error
         update_content_item(content_id, status="error")
         emit_event("pipeline", "error",
-                   f"Pipeline failed: {str(e)}",
+                   f"Something went wrong: {str(e)}. This usually means an API key is missing or a service is temporarily down. Check your Settings page.",
                    {"error": str(e)})
 
 
@@ -122,12 +122,12 @@ def stage_scrape(content_id, item, emit_event):
     stage = "scrape"
 
     if item["input_type"] != "url":
-        emit_event(stage, "skipped", "Input is an idea — skipping scrape stage")
+        emit_event(stage, "skipped", "You typed an idea (not a link), so we don't need to go grab an article from the internet. Skipping this step!")
         add_pipeline_log(content_id, stage, "skipped", "Input is an idea, no URL to scrape")
         return 0.0
 
     start = time.time()
-    emit_event(stage, "started", "Scraping article from URL...")
+    emit_event(stage, "started", "Sending your link to FireCrawl — it will visit the webpage and pull out just the article text (no ads, no menus, just the good stuff).")
     add_pipeline_log(content_id, stage, "started", f"Scraping: {item['input_text']}")
 
     update_content_item(content_id, status="scraping")
@@ -154,7 +154,7 @@ def stage_scrape(content_id, item, emit_event):
     }
 
     emit_event(stage, "complete",
-               f"Scraped {result.get('word_count', 0):,} words in {duration}s",
+               f"Got it! FireCrawl pulled {result.get('word_count', 0):,} words from the article in {duration}s. Now we'll send this text to AI to turn it into a post.",
                detail)
     add_pipeline_log(content_id, stage, "complete",
                      f"Scraped {result.get('word_count', 0)} words", json.dumps(detail))
@@ -170,7 +170,7 @@ def stage_script(content_id, item, emit_event):
     stage = "script"
     start = time.time()
 
-    emit_event(stage, "started", "Generating social media script...")
+    emit_event(stage, "started", f"Sending your content to AI (via OpenRouter) to write a {item['platform']} post. Think of OpenRouter as a switchboard — it picks the best AI model for the job.")
     add_pipeline_log(content_id, stage, "started", "Calling OpenRouter LLM")
 
     update_content_item(content_id, status="scripting")
@@ -201,7 +201,7 @@ def stage_script(content_id, item, emit_event):
     }
 
     emit_event(stage, "complete",
-               f"Script generated in {duration}s ({result.get('tokens_out', 0)} tokens, ${result.get('cost', 0):.4f})",
+               f"Script is done! The AI wrote {result.get('tokens_out', 0)} tokens (words/pieces) in {duration}s. Cost: ${result.get('cost', 0):.4f}. Next up: creating a matching image.",
                detail)
     add_pipeline_log(content_id, stage, "complete",
                      f"Script: {result.get('tokens_out', 0)} tokens", json.dumps(detail))
@@ -217,7 +217,7 @@ def stage_image(content_id, item, emit_event):
     stage = "image"
     start = time.time()
 
-    emit_event(stage, "started", "Creating image...")
+    emit_event(stage, "started", "Time to create an image! First, AI will describe what the image should look like (a 'prompt'). Then we send that description to Kie.ai, which actually draws the picture.")
     add_pipeline_log(content_id, stage, "started", "Generating image prompt + image")
 
     update_content_item(content_id, status="imaging")
@@ -256,7 +256,7 @@ def stage_image(content_id, item, emit_event):
     }
 
     emit_event(stage, "complete",
-               f"Image created in {duration}s (cost: ${total_cost:.4f})",
+               f"Image is ready! It took {duration}s because Kie.ai had to actually render the picture (that's why we kept checking on it). Cost: ${total_cost:.4f}.",
                detail)
     add_pipeline_log(content_id, stage, "complete",
                      f"Image ready: {image_result.get('task_id', 'N/A')}", json.dumps(detail))
@@ -272,12 +272,12 @@ def stage_video(content_id, item, emit_event):
     stage = "video"
 
     if not item.get("include_video"):
-        emit_event(stage, "skipped", "Video not requested — skipping")
+        emit_event(stage, "skipped", "You didn't ask for a video this time, so we're skipping this step. (Videos take longer and cost more — you can turn this on anytime!)")
         add_pipeline_log(content_id, stage, "skipped", "include_video is False")
         return 0.0
 
     start = time.time()
-    emit_event(stage, "started", "Generating video (this takes a while)...")
+    emit_event(stage, "started", "Creating a video with Kie.ai's Veo model. This takes longer than images (sometimes a few minutes) because video has way more frames to generate. Watch the polling — we keep asking 'is it done yet?' every 20 seconds.")
     add_pipeline_log(content_id, stage, "started", "Calling Kie.ai Veo 3.1")
 
     update_content_item(content_id, status="videoing")
@@ -308,7 +308,7 @@ def stage_video(content_id, item, emit_event):
     }
 
     emit_event(stage, "complete",
-               f"Video created in {duration}s (cost: ${cost:.4f})",
+               f"Video is done! Took {duration}s (see how much longer than the image?). Cost: ${cost:.4f}. Almost there — just need captions now.",
                detail)
     add_pipeline_log(content_id, stage, "complete",
                      f"Video ready: {video_result.get('task_id', 'N/A')}", json.dumps(detail))
@@ -324,7 +324,7 @@ def stage_caption(content_id, item, emit_event):
     stage = "caption"
     start = time.time()
 
-    emit_event(stage, "started", "Generating platform captions...")
+    emit_event(stage, "started", f"Last step! Each social platform has different rules (character limits, hashtag styles, tone). We're asking AI to write custom captions for {', '.join(platforms)} so each one fits perfectly.")
     add_pipeline_log(content_id, stage, "started", "Calling OpenRouter for captions")
 
     # Generate captions for the target platform + a few extras
@@ -353,7 +353,7 @@ def stage_caption(content_id, item, emit_event):
     }
 
     emit_event(stage, "complete",
-               f"Captions generated for {len(platforms)} platforms in {duration}s",
+               f"Captions ready for {len(platforms)} platforms in {duration}s! Each one is tailored — different length, tone, and hashtags for each platform.",
                detail)
     add_pipeline_log(content_id, stage, "complete",
                      f"Captions for {len(platforms)} platforms", json.dumps(detail))
