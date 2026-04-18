@@ -75,7 +75,7 @@ def generate_image(prompt, emit_event=None):
             TASK_CREATE_URL,
             headers=headers,
             json={
-                "model": "google/nano-banana-pro",
+                "model": "nano-banana-pro",
                 "input": {
                     "prompt": prompt,
                     "image_size": "1024x1024"
@@ -86,7 +86,9 @@ def generate_image(prompt, emit_event=None):
         create_response.raise_for_status()
         create_data = create_response.json()
 
-        task_id = create_data.get("taskId") or create_data.get("task_id")
+        # Kie.ai nests the taskId inside a "data" wrapper
+        data = create_data.get("data", create_data)
+        task_id = data.get("taskId") or data.get("task_id") or create_data.get("taskId")
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
 
@@ -122,17 +124,29 @@ def generate_image(prompt, emit_event=None):
             status_response.raise_for_status()
             status_data = status_response.json()
 
-            state = status_data.get("state", "unknown")
+            # Kie.ai nests status under "data" wrapper
+            data = status_data.get("data", status_data)
+            state = (data.get("state") or status_data.get("state", "unknown")).lower()
 
             # -- Emit polling events (the X-ray magic!) --
             emit("image", "polling",
                  f"Polling... attempt {attempt}, status: {state}",
                  {"attempt": attempt, "state": state, "elapsed": round(elapsed, 1)})
 
-            if state == "success":
-                # Extract the image URL from results
-                results = status_data.get("results", {})
-                image_url = results.get("url") or results.get("image_url", "")
+            if state in ("success", "completed", "done"):
+                # Extract image URL from resultJson (JSON string with resultUrls array)
+                image_url = ""
+                result_json_str = data.get("resultJson", "")
+                if result_json_str:
+                    import json
+                    result_json = json.loads(result_json_str)
+                    result_urls = result_json.get("resultUrls", [])
+                    if result_urls:
+                        image_url = result_urls[0]
+                # Fallback to other possible locations
+                if not image_url:
+                    results = data.get("results", status_data.get("results", {}))
+                    image_url = results.get("url") or results.get("image_url", "")
 
                 duration = round(time.time() - start_time, 1)
                 cost = 0.09  # Approximate cost per image
@@ -148,8 +162,8 @@ def generate_image(prompt, emit_event=None):
                     "demo": False
                 }
 
-            elif state in ("failed", "error"):
-                error_msg = status_data.get("error", "Unknown error")
+            elif state in ("failed", "failure", "error", "cancelled"):
+                error_msg = data.get("errorMessage") or data.get("error") or data.get("failMsg", "Unknown error")
                 emit("image", "error", f"Image generation failed: {error_msg}")
                 raise Exception(f"Image generation failed: {error_msg}")
 
@@ -209,7 +223,9 @@ def generate_video(prompt, emit_event=None):
         create_response.raise_for_status()
         create_data = create_response.json()
 
-        task_id = create_data.get("taskId") or create_data.get("task_id")
+        # Kie.ai nests the taskId inside a "data" wrapper
+        data = create_data.get("data", create_data)
+        task_id = data.get("taskId") or data.get("task_id") or create_data.get("taskId")
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
 
@@ -246,19 +262,38 @@ def generate_video(prompt, emit_event=None):
             status_response.raise_for_status()
             status_data = status_response.json()
 
-            state = status_data.get("state", "unknown")
+            # Veo uses data.successFlag: 0=generating, 1=success, 2/3=failed
+            data = status_data.get("data", status_data)
+            success_flag = data.get("successFlag", 0)
+            state = data.get("state", "unknown")
+            if success_flag == 1:
+                state = "success"
+            elif success_flag in (2, 3):
+                state = "failed"
+            elif success_flag == 0 and state == "unknown":
+                state = "processing"
 
             # -- Emit polling events (students see the long wait!) --
             emit("video", "polling",
                  f"Polling video... attempt {attempt}, status: {state} ({round(elapsed)}s elapsed)",
                  {"attempt": attempt, "state": state, "elapsed": round(elapsed, 1)})
 
-            if state == "success":
-                video_url = status_data.get("url") or status_data.get("video_url", "")
-                # Also check nested results
+            if state in ("success", "completed", "done"):
+                # Extract video URL — Veo returns in data.response.resultUrls[]
+                video_url = ""
+                if data.get("response") and data["response"].get("resultUrls"):
+                    video_url = data["response"]["resultUrls"][0]
+                elif data.get("videoUrl"):
+                    video_url = data["videoUrl"]
+                # Fallback: try resultJson like images
                 if not video_url:
-                    results = status_data.get("results", {})
-                    video_url = results.get("url") or results.get("video_url", "")
+                    import json
+                    result_json_str = data.get("resultJson", "")
+                    if result_json_str:
+                        result_json = json.loads(result_json_str)
+                        result_urls = result_json.get("resultUrls", [])
+                        if result_urls:
+                            video_url = result_urls[0]
 
                 duration = round(time.time() - start_time, 1)
                 cost = 0.19  # Approximate cost per video
@@ -274,8 +309,8 @@ def generate_video(prompt, emit_event=None):
                     "demo": False
                 }
 
-            elif state in ("failed", "error"):
-                error_msg = status_data.get("error", "Unknown error")
+            elif state in ("failed", "failure", "error", "cancelled"):
+                error_msg = data.get("errorMessage") or data.get("errorMsg") or data.get("failMsg", "Unknown error")
                 emit("video", "error", f"Video generation failed: {error_msg}")
                 raise Exception(f"Video generation failed: {error_msg}")
 
