@@ -43,15 +43,16 @@ Upgrade the Content Automation Demo from a simple pipeline X-ray viewer to a pro
 - `/login`, `/logout` — unchanged
 
 ### New API Endpoints
-- `GET /cam/api/queue` — polling endpoint for queue cards
-- `GET /cam/api/calendar` — monthly content counts for mini-calendar
-- `POST /cam/api/create` — submit new content (topic/URL)
+- `GET /cam/api/queue` — polling endpoint for queue cards (returns `{ processing: [], completed: [], failed: [], totals: {} }`)
+- `GET /cam/api/calendar` — monthly content counts (returns `{ "2026-05-01": { count: 2, statuses: ["scheduled","published"] }, ... }`)
+- `POST /cam/api/create` — submit new content (topic/URL), creates item with `draft` status, then triggers pipeline via SSE (wraps `/api/generate`)
 - `POST /cam/api/approve/<id>` — approve + schedule with date/time
-- `POST /cam/api/retry/<id>` — retry failed items
-- `DELETE /cam/api/item/<id>` — delete item
+- `POST /cam/api/retry/<id>` — reset failed items back to `draft` for reprocessing
+- `DELETE /cam/api/item/<id>` — soft-delete item
+- `POST /api/settings/headshot` — multipart form upload, uploads to R2 `headshots/` folder, stores URL as `headshot_url` setting (requires R2 to be configured)
 
 ### Kept API Endpoints
-- `POST /api/generate` — SSE stream for active pipeline
+- `POST /api/generate` — SSE stream for active pipeline (called by `/cam/api/create`)
 - `GET /api/stream/<id>` — SSE reconnection
 
 ## `/cam` Interface Layout
@@ -105,10 +106,10 @@ Upgrade the Content Automation Demo from a simple pipeline X-ray viewer to a pro
 |---|-------|---------|-------|
 | 1 | Scrape | FireCrawl | Skip if idea input |
 | 2 | Script | OpenRouter LLM | No change |
-| 3 | Image | Kie.ai Nano Banana Pro | 9:16 aspect ratio |
-| 4 | Video | Kie.ai Veo 3.1 | Optional headshot reference |
+| 3 | Image | Kie.ai Nano Banana Pro | 9:16 aspect ratio (changed from 1024x1024 square) |
+| 4 | Video | Kie.ai Veo 3.1 | Optional headshot reference (uses Kie.ai reference_images field) |
 | 5 | Captions | OpenRouter LLM | Multi-platform |
-| 6 | R2 Upload | Cloudflare R2 | New — permanent URLs |
+| 6 | R2 Upload | Cloudflare R2 | New — uploads image+video to R2, writes `r2_image_url`/`r2_video_url`. Skips if R2 not configured. |
 | 7 | Publish | GetLate.dev | Enhanced — scheduled |
 
 ### Headshot Toggle
@@ -116,20 +117,38 @@ Upgrade the Content Automation Demo from a simple pipeline X-ray viewer to a pro
 - Disabled: normal text-to-video (no reference)
 
 ### Status Flow
+
+New statuses replace the old ones (`draft`, `processing`, `scraped`, `scripted`, `imaged`, `videoed`, `error`). Students should delete their existing `content.db` to start fresh.
+
 ```
-idea -> scraping -> scripting -> imaging -> videoing -> captioning -> uploading -> ready -> scheduled -> published
+draft -> scraping -> scripting -> scripted -> imaging -> imaged -> videoing -> videoed -> captioning -> captioned -> uploading -> ready -> scheduled -> published
 ```
-Error states: `failed`, `blocked`
+
+- `draft` — initial state on creation (matches existing DB default)
+- `scraping` — FireCrawl running (transitions to `scripted` if idea input, skipping scrape)
+- `scripted` — script generation complete
+- `imaging` / `imaged` — image generation in progress / complete
+- `videoing` / `videoed` — video generation in progress / complete
+- `captioning` / `captioned` — caption generation in progress / complete
+- `uploading` — R2 upload in progress
+- `ready` — pipeline complete, awaiting approval
+- `scheduled` — approved, waiting for scheduled publish time
+- `published` — successfully published via GetLate
+- `failed` — pipeline error (replaces old `error` status), can retry
 
 ### Progress Mapping
 | Status | Progress |
 |--------|----------|
-| idea | 0% |
+| draft | 0% |
 | scraping | 10% |
-| scripting | 25% |
+| scripting | 20% |
+| scripted | 25% |
 | imaging | 40% |
-| videoing | 60% |
+| imaged | 50% |
+| videoing | 55% |
+| videoed | 70% |
 | captioning | 75% |
+| captioned | 80% |
 | uploading | 85% |
 | ready | 95% |
 | scheduled | 97% |
@@ -137,11 +156,16 @@ Error states: `failed`, `blocked`
 
 ## New Service: R2 Storage (`services/r2_storage.py`)
 
-- `upload_image(image_url)` — download from Kie.ai temp URL, upload to R2
-- `upload_video(video_url)` — download video, upload to R2
-- `get_presigned_url(key)` — generate presigned URL for playback
+- `upload_image(image_url)` — download from Kie.ai temp URL, upload to R2, return permanent URL
+- `upload_video(video_url)` — download video, upload to R2, return permanent URL
+- `upload_headshot(file_data, filename)` — upload headshot from multipart form
+- `get_presigned_url(key)` — generate presigned URL for playback (7-day expiry)
 - `test_connection()` — validate R2 credentials
+- `is_configured()` — check if R2 env vars are set
 - Uses boto3 S3-compatible client
+
+### Demo Mode
+When R2 is not configured (`is_configured()` returns False), the R2 Upload stage skips gracefully. Temp Kie.ai URLs are kept as-is in `image_url`/`video_url`. Publishing will use those URLs directly (must publish before they expire). A warning is logged: "R2 not configured — using temporary URLs."
 
 ### Folder Organization
 - `images/` — generated images
@@ -163,6 +187,12 @@ Error states: `failed`, `blocked`
 
 ## Database Schema Changes
 
+### Migration
+Students should delete their existing `content.db` to start fresh. The `init_db()` function will be updated with the new schema. For existing databases, `ALTER TABLE ADD COLUMN` statements will run in `init_db()` as a fallback.
+
+### Deprecated Tables
+- `schedule_slots` — no longer used. Scheduling is handled via `scheduled_at` field on `content_items` directly. Table is left in place but not referenced.
+
 ### New Fields on `content_items`
 
 | Field | Type | Purpose |
@@ -172,7 +202,7 @@ Error states: `failed`, `blocked`
 | `scheduled_at` | TIMESTAMP | When to publish |
 | `headshot_used` | BOOLEAN | Whether headshot reference was used |
 | `stage_durations` | TEXT | JSON: stage name -> seconds |
-| `stage_costs` | TEXT | JSON: stage name -> dollar cost |
+| `stage_costs` | TEXT | JSON: stage name -> dollar cost (written per-stage as each completes, accumulated by pipeline) |
 
 ### Settings Additions
 - `headshot_url` — uploaded headshot R2 URL
@@ -231,6 +261,13 @@ R2_PUBLIC_URL=
 
 ### Demo Mode
 - All tests work without API keys (demo fallbacks for every service)
+
+## Navigation Updates
+
+Update `base.html` navigation:
+- Replace `/create` link with `/cam` (label: "CAM")
+- Remove `/calendar` link (calendar is now inside `/cam`)
+- Keep: Dashboard (`/`), Settings (`/settings`), Logout
 
 ## Design System
 
