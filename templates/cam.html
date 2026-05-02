@@ -1,0 +1,564 @@
+{% extends "base.html" %}
+{% block title %}CAM — Content Engine{% endblock %}
+
+{% block content %}
+<div x-data="camApp()" x-init="init()">
+
+    <!-- Page Header -->
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold" style="color: var(--text-primary);">Content Automation Machine</h1>
+        <p class="text-sm mt-1" style="color: var(--text-subtle);">Create, queue, and schedule content from a single command center</p>
+    </div>
+
+    <div class="cam-layout">
+
+        <!-- ═══════════════════════════════════════════════════
+             LEFT SIDE — Input + Queue
+             ═══════════════════════════════════════════════════ -->
+        <div>
+
+            <!-- Hero Input -->
+            <div class="cam-hero">
+                <textarea
+                    x-model="input"
+                    @input="detectInputType()"
+                    class="input"
+                    rows="3"
+                    placeholder="Paste a URL or type an idea..."
+                    :disabled="generating"
+                    style="min-height: 80px; font-size: 15px; margin-bottom: 12px;"></textarea>
+
+                <!-- Auto-detect indicator -->
+                <div x-show="input.length > 0" x-transition class="mb-3">
+                    <span x-show="inputType === 'url'" class="input-detect-badge url" data-input-type="url">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101" />
+                        </svg>
+                        URL detected &mdash; will scrape article
+                    </span>
+                    <span x-show="inputType === 'idea'" class="input-detect-badge idea" data-input-type="idea">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                        Idea mode &mdash; will generate from scratch
+                    </span>
+                </div>
+
+                <!-- Controls Row -->
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- Platform Selector -->
+                    <select x-model="platform" class="input" style="width: auto; min-width: 140px;" :disabled="generating">
+                        <option value="instagram">Instagram</option>
+                        <option value="tiktok">TikTok</option>
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="youtube">YouTube</option>
+                        <option value="facebook">Facebook</option>
+                        <option value="x">X</option>
+                    </select>
+
+                    <!-- Include Video Checkbox -->
+                    <label class="flex items-center gap-2 cursor-pointer" style="font-size: 13px; color: var(--text-muted);">
+                        <input type="checkbox" x-model="includeVideo" :disabled="generating"
+                               style="accent-color: var(--gold); width: 16px; height: 16px;">
+                        Include Video
+                    </label>
+
+                    <!-- Spacer -->
+                    <div class="flex-1"></div>
+
+                    <!-- Generate Button -->
+                    <button class="btn btn-primary"
+                            :disabled="!input.trim() || generating"
+                            @click="submitContent()">
+                        <template x-if="!generating">
+                            <span class="flex items-center gap-2">
+                                <i data-lucide="zap" class="w-4 h-4"></i>
+                                Generate
+                            </span>
+                        </template>
+                        <template x-if="generating">
+                            <span class="flex items-center gap-2">
+                                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                                Generating...
+                            </span>
+                        </template>
+                    </button>
+                </div>
+            </div>
+
+            <!-- SSE Log (visible while generating) -->
+            <div x-show="sseLog.length > 0" x-transition class="mb-5">
+                <div class="cam-sse-log" x-ref="sseLogFeed">
+                    <template x-for="(entry, i) in sseLog" :key="i">
+                        <div class="cam-sse-entry">
+                            <span style="color: var(--gold);" x-text="entry.stage ? '[' + entry.stage + ']' : '[system]'"></span>
+                            <span x-text="entry.message || entry.status || JSON.stringify(entry)"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Queue Tabs -->
+            <div class="cam-tabs">
+                <button class="cam-tab" :class="{ 'active': activeTab === 'processing' }"
+                        @click="activeTab = 'processing'">
+                    Processing <span class="count" x-text="'(' + totals.processing + ')'"></span>
+                </button>
+                <button class="cam-tab" :class="{ 'active': activeTab === 'completed' }"
+                        @click="activeTab = 'completed'">
+                    Completed <span class="count" x-text="'(' + totals.completed + ')'"></span>
+                </button>
+                <button class="cam-tab" :class="{ 'active': activeTab === 'failed' }"
+                        @click="activeTab = 'failed'">
+                    Failed <span class="count" x-text="'(' + totals.failed + ')'"></span>
+                </button>
+            </div>
+
+            <!-- Queue Cards -->
+            <div>
+                <!-- Processing Cards -->
+                <template x-if="activeTab === 'processing'">
+                    <div>
+                        <template x-for="item in queue.processing" :key="item.id">
+                            <div class="cam-card">
+                                <a :href="'/content/' + item.id" class="cam-card-title"
+                                   x-text="(item.article_title || item.input_text || 'Untitled').substring(0, 80)"></a>
+                                <div class="cam-progress">
+                                    <div class="cam-progress-fill" :style="'width: ' + (item.progress || 0) + '%'"></div>
+                                </div>
+                                <div class="cam-card-meta">
+                                    <span>
+                                        <span class="badge badge-processing" x-text="item.current_stage || 'queued'"></span>
+                                        <span x-show="item.progress" x-text="item.progress + '%'" style="margin-left: 6px;"></span>
+                                    </span>
+                                    <span x-text="timeAgo(item.created_at)"></span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="queue.processing.length === 0" class="text-center py-8" style="color: var(--text-subtle); font-size: 13px;">
+                            No items processing
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Completed Cards -->
+                <template x-if="activeTab === 'completed'">
+                    <div>
+                        <template x-for="item in queue.completed" :key="item.id">
+                            <div class="cam-card">
+                                <a :href="'/content/' + item.id" class="cam-card-title"
+                                   x-text="(item.article_title || item.input_text || 'Untitled').substring(0, 80)"></a>
+                                <div class="cam-card-meta">
+                                    <span>
+                                        <span class="badge" :class="'badge-' + item.status" x-text="item.status"></span>
+                                        <span class="badge" :class="'badge-' + item.platform" x-text="item.platform"
+                                              style="margin-left: 4px;"></span>
+                                    </span>
+                                    <span class="flex items-center gap-2">
+                                        <span x-text="timeAgo(item.created_at)"></span>
+                                        <template x-if="item.status === 'ready'">
+                                            <button class="btn btn-outline btn-sm" @click.prevent="approveItem(item.id)">Approve</button>
+                                        </template>
+                                        <a :href="'/content/' + item.id" class="btn btn-ghost btn-sm">View</a>
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="queue.completed.length === 0" class="text-center py-8" style="color: var(--text-subtle); font-size: 13px;">
+                            No completed items yet
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Failed Cards -->
+                <template x-if="activeTab === 'failed'">
+                    <div>
+                        <template x-for="item in queue.failed" :key="item.id">
+                            <div class="cam-card">
+                                <a :href="'/content/' + item.id" class="cam-card-title"
+                                   x-text="(item.article_title || item.input_text || 'Untitled').substring(0, 80)"></a>
+                                <div class="cam-card-meta">
+                                    <span>
+                                        <span class="badge badge-error" x-text="item.error_message || 'Error'"></span>
+                                    </span>
+                                    <span class="flex items-center gap-2">
+                                        <span x-text="timeAgo(item.created_at)"></span>
+                                        <button class="btn btn-outline btn-sm" @click.prevent="retryItem(item.id)">Retry</button>
+                                        <button class="btn btn-ghost btn-sm" style="color: var(--danger);" @click.prevent="deleteItem(item.id)">Delete</button>
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="queue.failed.length === 0" class="text-center py-8" style="color: var(--text-subtle); font-size: 13px;">
+                            No failed items
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════
+             RIGHT SIDE — Mini Calendar
+             ═══════════════════════════════════════════════════ -->
+        <div>
+            <div class="cam-mini-cal">
+                <div class="cam-cal-header">
+                    <button class="cam-cal-nav" @click="prevMonth()">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    </button>
+                    <h3 x-text="monthNames[calMonth - 1] + ' ' + calYear"></h3>
+                    <button class="cam-cal-nav" @click="nextMonth()">
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <!-- Day-of-week labels -->
+                <div class="cam-cal-labels">
+                    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                </div>
+
+                <!-- Calendar grid -->
+                <div class="cam-cal-grid">
+                    <template x-for="day in calendarDays" :key="day.key">
+                        <div class="cam-cal-day"
+                             :class="{
+                                 'has-content': day.count > 0,
+                                 'today': day.isToday,
+                                 'other-month': day.otherMonth
+                             }">
+                            <span x-text="day.num"></span>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Weekly total -->
+                <div class="mt-3 text-center" style="font-size: 12px; color: var(--text-subtle);">
+                    <span x-text="weeklyTotal + ' items this week'"></span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════
+         Approve Modal
+         ═══════════════════════════════════════════════════ -->
+    <div x-show="showApproveModal" x-transition class="modal-overlay" @click.self="showApproveModal = false">
+        <div class="modal">
+            <div class="modal-title">Schedule Content</div>
+            <p class="text-sm mb-4" style="color: var(--text-subtle);">Pick a date and time to publish this content.</p>
+
+            <label class="input-label">Scheduled Date &amp; Time</label>
+            <input type="datetime-local" x-model="scheduleDate" class="input mb-4">
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @click="showApproveModal = false">Cancel</button>
+                <button class="btn btn-primary" :disabled="!scheduleDate" @click="confirmApprove()">
+                    <i data-lucide="calendar" class="w-4 h-4"></i>
+                    Schedule
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function camApp() {
+    return {
+        // Input state
+        input: '',
+        inputType: 'idea',
+        platform: 'instagram',
+        includeVideo: true,
+        generating: false,
+
+        // Queue state
+        activeTab: 'processing',
+        queue: { processing: [], completed: [], failed: [] },
+        totals: { processing: 0, completed: 0, failed: 0 },
+
+        // SSE log
+        sseLog: [],
+        activeItemId: null,
+
+        // Calendar state
+        calendarData: {},
+        calYear: new Date().getFullYear(),
+        calMonth: new Date().getMonth() + 1,
+        monthNames: ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'],
+
+        // Approve modal
+        showApproveModal: false,
+        approveItemId: null,
+        scheduleDate: '',
+
+        // Polling interval ref
+        _pollInterval: null,
+
+        // ── Computed-like ──────────────────────────────────
+
+        get calendarDays() {
+            const year = this.calYear;
+            const month = this.calMonth;
+            const firstDay = new Date(year, month - 1, 1).getDay();
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const daysInPrevMonth = new Date(year, month - 1, 0).getDate();
+            const today = new Date();
+            const days = [];
+
+            // Previous month padding
+            for (let i = firstDay - 1; i >= 0; i--) {
+                const num = daysInPrevMonth - i;
+                days.push({ key: 'prev-' + num, num, otherMonth: true, isToday: false, count: 0 });
+            }
+
+            // Current month
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+                const isToday = (today.getFullYear() === year && today.getMonth() + 1 === month && today.getDate() === d);
+                const count = this.calendarData[dateStr] || 0;
+                days.push({ key: dateStr, num: d, otherMonth: false, isToday, count });
+            }
+
+            // Next month padding
+            const remaining = 42 - days.length;
+            for (let i = 1; i <= remaining; i++) {
+                days.push({ key: 'next-' + i, num: i, otherMonth: true, isToday: false, count: 0 });
+            }
+
+            return days;
+        },
+
+        get weeklyTotal() {
+            const now = new Date();
+            const startOfWeek = new Date(now);
+            startOfWeek.setDate(now.getDate() - now.getDay());
+            let total = 0;
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(startOfWeek);
+                d.setDate(startOfWeek.getDate() + i);
+                const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                total += (this.calendarData[key] || 0);
+            }
+            return total;
+        },
+
+        // ── Init ───────────────────────────────────────────
+
+        init() {
+            this.refreshQueue();
+            this.loadCalendar();
+            this._pollInterval = setInterval(() => this.refreshQueue(), 5000);
+        },
+
+        // ── Input Detection ────────────────────────────────
+
+        detectInputType() {
+            const trimmed = this.input.trim();
+            this.inputType = (trimmed.startsWith('http://') || trimmed.startsWith('https://')) ? 'url' : 'idea';
+        },
+
+        // ── Submit Content (SSE via fetch ReadableStream) ──
+
+        async submitContent() {
+            if (!this.input.trim() || this.generating) return;
+
+            this.generating = true;
+            this.sseLog = [];
+            this.activeItemId = null;
+
+            try {
+                const response = await fetch('/cam/api/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        input_text: this.input.trim(),
+                        platform: this.platform,
+                        include_video: this.includeVideo
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const text = decoder.decode(value, { stream: true });
+                    const lines = text.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const event = JSON.parse(line.slice(6));
+                                this.sseLog.push(event);
+
+                                if (event.content_id) this.activeItemId = event.content_id;
+
+                                if (event.status === 'done' || event.status === 'pipeline_complete') {
+                                    this.generating = false;
+                                    this.refreshQueue();
+                                    this.input = '';
+                                    showToast('Content generated successfully!', 'success');
+                                }
+                            } catch (e) {
+                                // Skip malformed JSON
+                            }
+                        }
+                    }
+
+                    // Auto-scroll SSE log
+                    this.$nextTick(() => {
+                        const feed = this.$refs.sseLogFeed;
+                        if (feed) feed.scrollTop = feed.scrollHeight;
+                    });
+                }
+
+                // Stream ended without explicit done event
+                if (this.generating) {
+                    this.generating = false;
+                    this.refreshQueue();
+                }
+
+            } catch (err) {
+                this.generating = false;
+                showToast('Failed to generate: ' + err.message, 'error');
+            }
+        },
+
+        // ── Queue Management ───────────────────────────────
+
+        async refreshQueue() {
+            try {
+                const resp = await fetch('/cam/api/queue');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                this.queue = {
+                    processing: data.processing || [],
+                    completed: data.completed || [],
+                    failed: data.failed || []
+                };
+                this.totals = {
+                    processing: (data.processing || []).length,
+                    completed: (data.completed || []).length,
+                    failed: (data.failed || []).length
+                };
+            } catch (e) {
+                // Silently fail — will retry on next interval
+            }
+        },
+
+        // ── Calendar ───────────────────────────────────────
+
+        async loadCalendar() {
+            try {
+                const resp = await fetch('/cam/api/calendar?year=' + this.calYear + '&month=' + this.calMonth);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                this.calendarData = data.days || {};
+            } catch (e) {
+                // Silently fail
+            }
+        },
+
+        prevMonth() {
+            this.calMonth--;
+            if (this.calMonth < 1) { this.calMonth = 12; this.calYear--; }
+            this.loadCalendar();
+        },
+
+        nextMonth() {
+            this.calMonth++;
+            if (this.calMonth > 12) { this.calMonth = 1; this.calYear++; }
+            this.loadCalendar();
+        },
+
+        // ── Actions ────────────────────────────────────────
+
+        approveItem(id) {
+            this.approveItemId = id;
+            this.scheduleDate = '';
+            this.showApproveModal = true;
+        },
+
+        async confirmApprove() {
+            if (!this.approveItemId || !this.scheduleDate) return;
+            try {
+                const resp = await fetch('/cam/api/approve/' + this.approveItemId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scheduled_at: this.scheduleDate })
+                });
+                if (resp.ok) {
+                    showToast('Content scheduled!', 'success');
+                    this.showApproveModal = false;
+                    this.refreshQueue();
+                    this.loadCalendar();
+                } else {
+                    showToast('Failed to approve', 'error');
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        },
+
+        async retryItem(id) {
+            try {
+                const resp = await fetch('/cam/api/retry/' + id, { method: 'POST' });
+                if (resp.ok) {
+                    showToast('Retrying content generation...', 'success');
+                    this.refreshQueue();
+                } else {
+                    showToast('Failed to retry', 'error');
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        },
+
+        async deleteItem(id) {
+            try {
+                const resp = await fetch('/cam/api/item/' + id, { method: 'DELETE' });
+                if (resp.ok) {
+                    showToast('Item deleted', 'success');
+                    this.refreshQueue();
+                } else {
+                    showToast('Failed to delete', 'error');
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        },
+
+        // ── Utilities ──────────────────────────────────────
+
+        timeAgo(dateStr) {
+            if (!dateStr) return '';
+            const now = new Date();
+            const date = new Date(dateStr);
+            const seconds = Math.floor((now - date) / 1000);
+
+            if (seconds < 60) return 'just now';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+            if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+            if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
+            return date.toLocaleDateString();
+        }
+    };
+}
+</script>
+{% endblock %}

@@ -1549,3 +1549,33 @@ textarea.input {
         grid-template-columns: repeat(3, 1fr);
     }
 }
+
+/* ── CAM Interface ────────────────────────────────────── */
+.cam-layout { display: grid; grid-template-columns: 1fr 340px; gap: 24px; }
+@media (max-width: 1024px) { .cam-layout { grid-template-columns: 1fr; } }
+.cam-hero { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.cam-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.cam-tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-subtle); background: transparent; border: none; transition: all 0.2s; font-family: inherit; }
+.cam-tab.active { background: rgba(199,163,90,0.15); color: var(--gold); }
+.cam-tab .count { font-size: 11px; margin-left: 4px; opacity: 0.7; }
+.cam-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.2s; }
+.cam-card:hover { border-color: var(--gold-dim, rgba(199,163,90,0.4)); }
+.cam-card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: block; text-decoration: none; }
+.cam-card-title:hover { color: var(--gold); }
+.cam-progress { height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
+.cam-progress-fill { height: 100%; background: var(--gold); border-radius: 2px; transition: width 0.5s ease; }
+.cam-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-subtle); }
+.cam-sse-log { max-height: 200px; overflow-y: auto; font-family: 'SF Mono', 'Consolas', monospace; font-size: 11px; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; }
+.cam-sse-entry { padding: 2px 0; color: var(--text-muted); }
+.cam-mini-cal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.cam-cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.cam-cal-header h3 { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.cam-cal-nav { background: none; border: 1px solid var(--border); border-radius: 6px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-subtle); }
+.cam-cal-nav:hover { border-color: var(--gold); color: var(--gold); }
+.cam-cal-labels { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 10px; color: var(--text-subtle); margin-bottom: 4px; font-weight: 600; }
+.cam-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cam-cal-day { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; color: var(--text-muted); border-radius: 6px; position: relative; }
+.cam-cal-day.has-content { color: var(--gold); font-weight: 600; }
+.cam-cal-day.has-content::after { content: ''; width: 4px; height: 4px; background: var(--gold); border-radius: 50%; position: absolute; bottom: 2px; }
+.cam-cal-day.today { background: rgba(199,163,90,0.1); border: 1px solid rgba(199,163,90,0.3); }
+.cam-cal-day.other-month { opacity: 0.3; }
