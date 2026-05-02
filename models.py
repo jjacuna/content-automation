@@ -72,6 +72,11 @@ def init_db():
                 scheduled_at TIMESTAMP,
                 published_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                r2_image_url TEXT,
+                r2_video_url TEXT,
+                headshot_used BOOLEAN DEFAULT 0,
+                stage_durations TEXT,
+                stage_costs TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -110,6 +115,20 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # -- Migration fallback: add new columns to existing databases --
+        _migrate_new_columns = [
+            "ALTER TABLE content_items ADD COLUMN r2_image_url TEXT",
+            "ALTER TABLE content_items ADD COLUMN r2_video_url TEXT",
+            "ALTER TABLE content_items ADD COLUMN headshot_used BOOLEAN DEFAULT 0",
+            "ALTER TABLE content_items ADD COLUMN stage_durations TEXT",
+            "ALTER TABLE content_items ADD COLUMN stage_costs TEXT",
+        ]
+        for sql in _migrate_new_columns:
+            try:
+                db.execute(sql)
+            except Exception:
+                pass  # Column already exists — safe to ignore
 
 
 # ===========================================================================
@@ -277,3 +296,50 @@ def list_schedule_slots(month=None, year=None):
                    ORDER BY s.scheduled_datetime ASC"""
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ===========================================================================
+# CONTENT ITEMS — Advanced queries
+# ===========================================================================
+
+def list_content_items_by_statuses(statuses, limit=50):
+    """
+    List content items matching any of the given statuses.
+    Usage: list_content_items_by_statuses(["ready", "failed"])
+    """
+    if not statuses:
+        return []
+    placeholders = ", ".join("?" for _ in statuses)
+    with get_db() as db:
+        rows = db.execute(
+            f"SELECT * FROM content_items WHERE status IN ({placeholders}) ORDER BY created_at DESC LIMIT ?",
+            list(statuses) + [limit]
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_calendar_counts(year, month):
+    """
+    Return a dict of {date_str: {count, statuses}} for items with scheduled_at
+    in the given year/month.  Groups by date(scheduled_at) and status.
+    """
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT date(scheduled_at) as sched_date, status, COUNT(*) as cnt
+               FROM content_items
+               WHERE scheduled_at IS NOT NULL
+                 AND strftime('%Y', scheduled_at) = ?
+                 AND strftime('%m', scheduled_at) = ?
+               GROUP BY sched_date, status""",
+            (str(year), str(month).zfill(2))
+        ).fetchall()
+
+    result = {}
+    for row in rows:
+        d = row["sched_date"]
+        if d not in result:
+            result[d] = {"count": 0, "statuses": []}
+        result[d]["count"] += row["cnt"]
+        if row["status"] not in result[d]["statuses"]:
+            result[d]["statuses"].append(row["status"])
+    return result
