@@ -1556,7 +1556,44 @@ git commit -m "feat: add R2 env vars to .env.example"
 
 ---
 
-## Task 12: Playwright E2E Smoke Tests
+## Task 12: Local Test Server Setup
+
+Ensure the app can be started locally for testing. The Playwright and CMUX tests all depend on `http://localhost:5000` being up.
+
+**Files:**
+- None (verification only)
+
+- [ ] **Step 1: Install all dependencies**
+
+```bash
+cd "/Users/jonathanacuna/Documents/VS Code Programs/Content Automation Demo For Claude Workshop"
+pip install -r requirements.txt
+```
+
+- [ ] **Step 2: Delete old database and reinitialize**
+
+```bash
+cd "/Users/jonathanacuna/Documents/VS Code Programs/Content Automation Demo For Claude Workshop"
+rm -f content.db
+python -c "from models import init_db; init_db(); print('DB initialized')"
+```
+
+- [ ] **Step 3: Start the local server and verify it responds**
+
+```bash
+cd "/Users/jonathanacuna/Documents/VS Code Programs/Content Automation Demo For Claude Workshop"
+python app.py &
+sleep 2
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/login
+# Expected: 200
+kill %1
+```
+
+- [ ] **Step 4: Fix any startup issues found**
+
+---
+
+## Task 13: Playwright E2E Smoke Tests
 
 **Files:**
 - Create: `tests/e2e/test_smoke.py`
@@ -1683,7 +1720,7 @@ git commit -m "test: Playwright E2E smoke tests for CAM interface, settings, and
 
 ---
 
-## Task 13: CMUX Browser Smoke Test
+## Task 14: CMUX Browser Smoke Test
 
 - [ ] **Step 1: Run CMUX smoke test**
 
@@ -1705,7 +1742,7 @@ git commit -m "fix: address issues found in CMUX smoke testing"
 
 ---
 
-## Task 14: Final Verification
+## Task 15: Final Verification
 
 - [ ] **Step 1: Run all unit tests**
 
