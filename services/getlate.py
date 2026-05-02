@@ -7,11 +7,30 @@ Students learn: this is the "output" stage — where content goes live.
 
 import os
 import requests
+from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
 # API endpoint
 # ---------------------------------------------------------------------------
 GETLATE_BASE_URL = "https://getlate.dev/api/v1"
+
+
+def _parse_scheduled_time(scheduled_at_str):
+    """Parse a scheduled_at string into UTC ISO 8601 format."""
+    formats = [
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+    ]
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(scheduled_at_str, fmt)
+            dt_utc = dt.replace(tzinfo=timezone.utc)
+            return dt_utc.isoformat()
+        except (ValueError, TypeError):
+            continue
+    # Can't parse — return as-is
+    return scheduled_at_str
 
 
 def _get_headers():
@@ -65,19 +84,23 @@ def publish_post(content_item, platforms=None, emit_event=None):
             "platforms": [{"platform": p} for p in platforms],
         }
 
-        # Attach image if available
-        if content_item.get("image_url"):
-            payload["media"] = [{"url": content_item["image_url"], "type": "image"}]
+        # Attach image if available (prefer R2 URL)
+        image_url = content_item.get("r2_image_url") or content_item.get("image_url")
+        if image_url:
+            payload["media"] = [{"url": image_url, "type": "image"}]
 
-        # Attach video if available
-        if content_item.get("video_url"):
+        # Attach video if available (prefer R2 URL)
+        video_url = content_item.get("r2_video_url") or content_item.get("video_url")
+        if video_url:
             payload["media"] = payload.get("media", [])
-            payload["media"].append({"url": content_item["video_url"], "type": "video"})
+            payload["media"].append({"url": video_url, "type": "video"})
 
-        # If there's a scheduled time, add it
+        # If there's a scheduled time, parse and add it
         if content_item.get("scheduled_at"):
-            payload["scheduled_for"] = content_item["scheduled_at"]
-            payload["timezone"] = "America/Los_Angeles"
+            parsed_time = _parse_scheduled_time(content_item["scheduled_at"])
+            if parsed_time:
+                payload["scheduled_for"] = parsed_time
+                payload["timezone"] = "America/Los_Angeles"
 
         response = requests.post(
             f"{GETLATE_BASE_URL}/posts",
