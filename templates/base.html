@@ -51,17 +51,11 @@
                     <i data-lucide="home" class="sidebar-icon"></i>
                     Dashboard
                 </a>
-                <a href="/create"
-                   class="sidebar-link {% if current_page == 'create' %}active{% endif %}"
+                <a href="/cam"
+                   class="sidebar-link {% if current_page == 'cam' %}active{% endif %}"
                    @click="sidebarOpen = false">
-                    <i data-lucide="plus-circle" class="sidebar-icon"></i>
-                    Create
-                </a>
-                <a href="/calendar"
-                   class="sidebar-link {% if current_page == 'calendar' %}active{% endif %}"
-                   @click="sidebarOpen = false">
-                    <i data-lucide="calendar" class="sidebar-icon"></i>
-                    Calendar
+                    <i data-lucide="play-circle" class="sidebar-icon"></i>
+                    CAM
                 </a>
                 <a href="/settings"
                    class="sidebar-link {% if current_page == 'settings' %}active{% endif %}"
