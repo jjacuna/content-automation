@@ -23,11 +23,45 @@ import json
 import time
 from datetime import datetime
 
-from models import get_content_item, update_content_item, add_pipeline_log
+from models import get_content_item, update_content_item, add_pipeline_log, get_setting
 from services.firecrawl import scrape_url
 from services.openrouter import generate_script, generate_image_prompt, generate_captions
-from services.kie_ai import generate_image, generate_video
+from services.kie_ai import generate_image, generate_video, generate_video_with_reference
 from services.getlate import publish_post
+from services.r2_storage import upload_image as r2_upload_image, upload_video as r2_upload_video, is_configured as r2_is_configured
+
+
+# ---------------------------------------------------------------------------
+# Helper: record per-stage duration and cost as JSON on content item
+# ---------------------------------------------------------------------------
+def _record_stage_metric(content_id, stage_name, duration=0.0, cost=0.0):
+    """
+    Append a stage's duration and cost to the JSON blobs stored on the content item.
+    Reads existing stage_durations / stage_costs (or starts from {}), adds the new
+    values, and writes back.
+    """
+    item = get_content_item(content_id)
+    if not item:
+        return
+
+    # Parse existing JSON or start fresh
+    try:
+        durations = json.loads(item.get("stage_durations") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        durations = {}
+    try:
+        costs = json.loads(item.get("stage_costs") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        costs = {}
+
+    durations[stage_name] = duration
+    costs[stage_name] = cost
+
+    update_content_item(
+        content_id,
+        stage_durations=json.dumps(durations),
+        stage_costs=json.dumps(costs),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -56,9 +90,6 @@ def run_pipeline(content_id, emit_event):
     emit_event("pipeline", "started",
                f"Kicking off your content machine! We'll turn your {'link' if item['input_type'] == 'url' else 'idea'} into a ready-to-post piece of content.",
                {"content_id": content_id, "input_type": item["input_type"]})
-
-    # Update status to processing
-    update_content_item(content_id, status="processing")
 
     try:
         # ==================================================================
@@ -95,6 +126,14 @@ def run_pipeline(content_id, emit_event):
         # ==================================================================
         cost = stage_caption(content_id, item, emit_event)
         total_cost += cost
+        item = get_content_item(content_id)
+
+        # ==================================================================
+        # STAGE 6: R2 UPLOAD
+        # ==================================================================
+        cost = stage_r2_upload(content_id, item, emit_event)
+        total_cost += cost
+        item = get_content_item(content_id)
 
         # ==================================================================
         # PIPELINE COMPLETE
@@ -107,8 +146,8 @@ def run_pipeline(content_id, emit_event):
                    {"total_duration": total_duration, "total_cost": total_cost})
 
     except Exception as e:
-        # If any stage fails, mark the item as error
-        update_content_item(content_id, status="error")
+        # If any stage fails, mark the item as failed
+        update_content_item(content_id, status="failed")
         emit_event("pipeline", "error",
                    f"Something went wrong: {str(e)}. This usually means an API key is missing or a service is temporarily down. Check your Settings page.",
                    {"error": str(e)})
@@ -159,6 +198,7 @@ def stage_scrape(content_id, item, emit_event):
     add_pipeline_log(content_id, stage, "complete",
                      f"Scraped {result.get('word_count', 0)} words", json.dumps(detail))
 
+    _record_stage_metric(content_id, stage, duration=duration, cost=0.0)
     return 0.0  # FireCrawl cost is tracked per-account, not per-call
 
 
@@ -206,7 +246,9 @@ def stage_script(content_id, item, emit_event):
     add_pipeline_log(content_id, stage, "complete",
                      f"Script: {result.get('tokens_out', 0)} tokens", json.dumps(detail))
 
-    return result.get("cost", 0.0)
+    cost = result.get("cost", 0.0)
+    _record_stage_metric(content_id, stage, duration=duration, cost=cost)
+    return cost
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +303,7 @@ def stage_image(content_id, item, emit_event):
     add_pipeline_log(content_id, stage, "complete",
                      f"Image ready: {image_result.get('task_id', 'N/A')}", json.dumps(detail))
 
+    _record_stage_metric(content_id, stage, duration=duration, cost=total_cost)
     return total_cost
 
 
@@ -268,7 +311,7 @@ def stage_image(content_id, item, emit_event):
 # STAGE 4: VIDEO (optional)
 # ---------------------------------------------------------------------------
 def stage_video(content_id, item, emit_event):
-    """Generate video via Kie.ai. Skip if include_video is False."""
+    """Generate video via Kie.ai. Skip if include_video is False. Supports headshot toggle."""
     stage = "video"
 
     if not item.get("include_video"):
@@ -286,7 +329,16 @@ def stage_video(content_id, item, emit_event):
     video_prompt = item.get("image_prompt", item.get("script", ""))
     update_content_item(content_id, video_prompt=video_prompt)
 
-    video_result = generate_video(video_prompt, emit_event=emit_event)
+    # Check headshot toggle
+    headshot_enabled = get_setting("headshot_enabled")
+    headshot_url = get_setting("headshot_url")
+
+    if headshot_enabled and headshot_url:
+        emit_event(stage, "info", "Headshot reference detected — generating video with your face for a personal touch.")
+        video_result = generate_video_with_reference(video_prompt, headshot_url, emit_event=emit_event)
+        update_content_item(content_id, headshot_used=1)
+    else:
+        video_result = generate_video(video_prompt, emit_event=emit_event)
 
     duration = round(time.time() - start, 1)
 
@@ -313,6 +365,7 @@ def stage_video(content_id, item, emit_event):
     add_pipeline_log(content_id, stage, "complete",
                      f"Video ready: {video_result.get('task_id', 'N/A')}", json.dumps(detail))
 
+    _record_stage_metric(content_id, stage, duration=duration, cost=cost)
     return cost
 
 
@@ -324,12 +377,14 @@ def stage_caption(content_id, item, emit_event):
     stage = "caption"
     start = time.time()
 
-    emit_event(stage, "started", f"Last step! Each social platform has different rules (character limits, hashtag styles, tone). We're asking AI to write custom captions for {', '.join(platforms)} so each one fits perfectly.")
-    add_pipeline_log(content_id, stage, "started", "Calling OpenRouter for captions")
+    update_content_item(content_id, status="captioning")
 
     # Generate captions for the target platform + a few extras
     target = item.get("platform", "instagram")
     platforms = list(set([target, "instagram", "tiktok", "linkedin"]))
+
+    emit_event(stage, "started", f"Last step! Each social platform has different rules (character limits, hashtag styles, tone). We're asking AI to write custom captions for {', '.join(platforms)} so each one fits perfectly.")
+    add_pipeline_log(content_id, stage, "started", "Calling OpenRouter for captions")
 
     result = generate_captions(
         item.get("script", ""),
@@ -341,7 +396,7 @@ def stage_caption(content_id, item, emit_event):
 
     # Save captions as JSON
     captions_json = json.dumps(result.get("captions", {}))
-    update_content_item(content_id, captions=captions_json)
+    update_content_item(content_id, status="captioned", captions=captions_json)
 
     cost = result.get("cost", 0.0)
 
@@ -358,11 +413,76 @@ def stage_caption(content_id, item, emit_event):
     add_pipeline_log(content_id, stage, "complete",
                      f"Captions for {len(platforms)} platforms", json.dumps(detail))
 
+    _record_stage_metric(content_id, stage, duration=duration, cost=cost)
     return cost
 
 
 # ---------------------------------------------------------------------------
-# STAGE 6: PUBLISH (triggered separately)
+# STAGE 6: R2 UPLOAD (optional — uploads assets to Cloudflare R2)
+# ---------------------------------------------------------------------------
+def stage_r2_upload(content_id, item, emit_event):
+    """Upload image/video to Cloudflare R2 for permanent storage. Skips if R2 not configured."""
+    stage = "r2_upload"
+
+    if not r2_is_configured():
+        emit_event(stage, "skipped", "R2 storage is not configured — skipping cloud upload. Your images/videos will use the original API URLs (which may expire). Add R2 credentials in Settings for permanent hosting.")
+        add_pipeline_log(content_id, stage, "skipped", "R2 not configured")
+        return 0.0
+
+    start = time.time()
+    emit_event(stage, "started", "Uploading your assets to Cloudflare R2 for permanent storage. API-generated URLs can expire, so we save copies to your own cloud bucket.")
+    add_pipeline_log(content_id, stage, "started", "Uploading to R2")
+
+    update_content_item(content_id, status="uploading")
+
+    r2_image_url = None
+    r2_video_url = None
+
+    # Upload image if it exists and is not a placeholder
+    image_url = item.get("image_url", "")
+    if image_url and "placeholder" not in image_url:
+        try:
+            img_result = r2_upload_image(image_url, emit_event=emit_event)
+            r2_image_url = img_result.get("url")
+        except Exception as e:
+            emit_event(stage, "warning", f"Image upload to R2 failed: {e}")
+
+    # Upload video if it exists and is not a placeholder
+    video_url = item.get("video_url", "")
+    if video_url and "placeholder" not in video_url:
+        try:
+            vid_result = r2_upload_video(video_url, emit_event=emit_event)
+            r2_video_url = vid_result.get("url")
+        except Exception as e:
+            emit_event(stage, "warning", f"Video upload to R2 failed: {e}")
+
+    duration = round(time.time() - start, 1)
+
+    update_content_item(
+        content_id,
+        r2_image_url=r2_image_url,
+        r2_video_url=r2_video_url,
+    )
+
+    detail = {
+        "duration": duration,
+        "r2_image_url": r2_image_url,
+        "r2_video_url": r2_video_url,
+        "cost": 0.0,
+    }
+
+    emit_event(stage, "complete",
+               f"Assets uploaded to R2 in {duration}s. Your content now has permanent URLs that won't expire.",
+               detail)
+    add_pipeline_log(content_id, stage, "complete",
+                     "Uploaded to R2", json.dumps(detail))
+
+    _record_stage_metric(content_id, stage, duration=duration, cost=0.0)
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# STAGE 7: PUBLISH (triggered separately)
 # ---------------------------------------------------------------------------
 def stage_publish(content_id, emit_event):
     """
@@ -408,7 +528,7 @@ def stage_publish(content_id, emit_event):
                          f"Published: {result.get('post_id', 'N/A')}", json.dumps(detail))
 
     except Exception as e:
-        update_content_item(content_id, status="error")
+        update_content_item(content_id, status="failed")
         emit_event(stage, "error", f"Publishing failed: {str(e)}")
         add_pipeline_log(content_id, stage, "error", str(e))
 
