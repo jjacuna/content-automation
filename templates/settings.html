@@ -288,6 +288,147 @@
         </div>
     </div>
 
+    <!-- Headshot -->
+    <div class="service-card">
+        <div class="service-header">
+            <div class="service-name">
+                <span style="font-size: 20px;">&#128247;</span>
+                Headshot
+            </div>
+        </div>
+        <p class="service-desc">Upload your headshot photo. When enabled, Veo 3.1 will place you in video scenes using AI reference imaging.</p>
+
+        <div class="mb-4 flex items-center gap-3">
+            <button class="toggle-switch" :class="{ 'active': headshot.enabled }"
+                    @click="headshot.enabled = !headshot.enabled; saveHeadshotToggle()">
+                <span class="toggle-knob"></span>
+            </button>
+            <span class="text-sm" style="color: var(--text-muted);">Use headshot in videos</span>
+        </div>
+
+        <div x-show="headshot.url" class="mb-4">
+            <label class="input-label">Current Headshot</label>
+            <img :src="headshot.url" alt="Headshot preview"
+                 style="max-width: 120px; border-radius: var(--radius); border: 1px solid var(--border);">
+        </div>
+
+        <div class="mb-4">
+            <label class="input-label">Upload Photo</label>
+            <input type="file" accept="image/jpeg,image/png"
+                   class="input" style="padding: 8px;"
+                   @change="uploadHeadshot($event)">
+        </div>
+
+        <div x-show="headshot.uploading" class="text-xs mb-2" style="color: var(--gold);">
+            Uploading...
+        </div>
+    </div>
+
+    <!-- Cloudflare R2 Storage -->
+    <div class="service-card">
+        <div class="service-header">
+            <div class="service-name">
+                <span style="font-size: 20px;">&#9729;</span>
+                Cloudflare R2 Storage
+            </div>
+            <div class="service-status"
+                 :class="services.r2.connected ? 'connected' : 'disconnected'">
+                <template x-if="services.r2.connected">
+                    <span class="flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        Connected
+                    </span>
+                </template>
+                <template x-if="!services.r2.connected">
+                    <span class="flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke-width="2"></circle>
+                        </svg>
+                        Not configured
+                    </span>
+                </template>
+            </div>
+        </div>
+        <p class="service-desc">Permanent media storage. Without R2, AI-generated URLs expire. With R2, your images and videos are stored forever.</p>
+
+        <div class="mb-4">
+            <label class="input-label">Account ID</label>
+            <div class="input-group">
+                <input :type="services.r2.showKey ? 'text' : 'password'"
+                       class="input" style="padding-right: 42px;"
+                       x-model="services.r2.accountId"
+                       placeholder="Your Cloudflare Account ID">
+                <button class="input-toggle" @click="services.r2.showKey = !services.r2.showKey">
+                    <i x-show="!services.r2.showKey" data-lucide="eye" class="w-4 h-4"></i>
+                    <i x-show="services.r2.showKey" data-lucide="eye-off" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="input-label">Access Key ID</label>
+            <input type="text" class="input"
+                   x-model="services.r2.accessKeyId"
+                   placeholder="R2 Access Key ID">
+        </div>
+
+        <div class="mb-4">
+            <label class="input-label">Secret Access Key</label>
+            <div class="input-group">
+                <input :type="services.r2.showKey ? 'text' : 'password'"
+                       class="input" style="padding-right: 42px;"
+                       x-model="services.r2.secretAccessKey"
+                       placeholder="R2 Secret Access Key">
+                <button class="input-toggle" @click="services.r2.showKey = !services.r2.showKey">
+                    <i x-show="!services.r2.showKey" data-lucide="eye" class="w-4 h-4"></i>
+                    <i x-show="services.r2.showKey" data-lucide="eye-off" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="input-label">Bucket Name</label>
+            <input type="text" class="input"
+                   x-model="services.r2.bucketName"
+                   placeholder="my-content-bucket">
+        </div>
+
+        <div class="mb-4">
+            <label class="input-label">Public URL</label>
+            <input type="text" class="input"
+                   x-model="services.r2.publicUrl"
+                   placeholder="https://pub-xxxx.r2.dev">
+        </div>
+
+        <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" @click="saveService('r2')">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                Save
+            </button>
+            <button class="btn btn-outline btn-sm"
+                    @click="testConnection('r2')"
+                    :disabled="!services.r2.accountId || !services.r2.accessKeyId || services.r2.testing">
+                <template x-if="!services.r2.testing">
+                    <span class="flex items-center gap-1">
+                        <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
+                        Test Connection
+                    </span>
+                </template>
+                <template x-if="services.r2.testing">
+                    <span class="flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Testing...
+                    </span>
+                </template>
+            </button>
+        </div>
+    </div>
+
 </div>
 {% endblock %}
 
@@ -295,6 +436,11 @@
 <script>
 function settingsApp() {
     return {
+        headshot: {
+            url: {{ (settings.get('headshot_url', '') if settings else '')|tojson }},
+            enabled: {{ 'true' if settings and settings.get('headshot_enabled') else 'false' }},
+            uploading: false
+        },
         services: {
             openrouter: {
                 key: {{ (settings.get('openrouter_api_key', '') if settings else '')|tojson }},
@@ -322,6 +468,16 @@ function settingsApp() {
                 showKey: false,
                 testing: false,
                 accounts: []
+            },
+            r2: {
+                accountId: {{ (settings.get('r2_account_id', '') if settings else '')|tojson }},
+                accessKeyId: {{ (settings.get('r2_access_key_id', '') if settings else '')|tojson }},
+                secretAccessKey: {{ (settings.get('r2_secret_access_key', '') if settings else '')|tojson }},
+                bucketName: {{ (settings.get('r2_bucket_name', '') if settings else '')|tojson }},
+                publicUrl: {{ (settings.get('r2_public_url', '') if settings else '')|tojson }},
+                connected: {{ 'true' if settings and settings.get('r2_account_id') and settings.get('r2_access_key_id') else 'false' }},
+                showKey: false,
+                testing: false
             }
         },
 
@@ -343,6 +499,13 @@ function settingsApp() {
                     break;
                 case 'getlate':
                     payload.getlate_api_key = svc.key;
+                    break;
+                case 'r2':
+                    payload.r2_account_id = svc.accountId;
+                    payload.r2_access_key_id = svc.accessKeyId;
+                    payload.r2_secret_access_key = svc.secretAccessKey;
+                    payload.r2_bucket_name = svc.bucketName;
+                    payload.r2_public_url = svc.publicUrl;
                     break;
             }
 
@@ -378,6 +541,47 @@ function settingsApp() {
                     svc.testing = false;
                     showToast('Connection test failed', 'error');
                 });
+        },
+
+        uploadHeadshot(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            this.headshot.uploading = true;
+            const formData = new FormData();
+            formData.append('headshot', file);
+
+            fetch('/api/settings/headshot', {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.headshot.uploading = false;
+                if (data.success) {
+                    this.headshot.url = data.url;
+                    showToast('Headshot uploaded!', 'success');
+                } else {
+                    showToast('Upload failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(() => {
+                this.headshot.uploading = false;
+                showToast('Headshot upload failed', 'error');
+            });
+        },
+
+        saveHeadshotToggle() {
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ headshot_enabled: this.headshot.enabled ? '1' : '' })
+            })
+            .then(r => r.json())
+            .then(() => {
+                showToast('Headshot ' + (this.headshot.enabled ? 'enabled' : 'disabled'), 'success');
+            })
+            .catch(() => showToast('Failed to save setting', 'error'));
         }
     };
 }

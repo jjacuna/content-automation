@@ -1263,6 +1263,37 @@ textarea.input {
     font-weight: 500;
 }
 
+/* ── Toggle Switch (button-based) ─────────────────────── */
+.toggle-switch {
+    width: 44px;
+    height: 24px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 0;
+    flex-shrink: 0;
+}
+.toggle-switch.active {
+    background: var(--gold);
+    border-color: var(--gold);
+}
+.toggle-knob {
+    width: 18px;
+    height: 18px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s;
+}
+.toggle-switch.active .toggle-knob {
+    transform: translateX(20px);
+}
+
 /* ── Settings Service Card ─────────────────────────────── */
 .service-card {
     background: var(--bg-card);
