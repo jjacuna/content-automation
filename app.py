@@ -30,7 +30,7 @@ from models import (
     init_db, create_content_item, get_content_item, list_content_items,
     update_content_item, delete_content_item, add_pipeline_log,
     get_pipeline_logs, get_setting, set_setting, create_schedule_slot,
-    list_schedule_slots
+    list_schedule_slots, list_content_items_by_statuses, get_calendar_counts
 )
 from pipeline import run_pipeline, stage_publish, regenerate_image
 
@@ -50,6 +50,28 @@ def create_app():
 
     # Initialize the database on startup
     init_db()
+
+    # -- Scheduling background thread --
+    # Checks every 60 seconds for scheduled items whose scheduled_at has passed
+    def scheduling_loop():
+        import time as _time
+        while True:
+            _time.sleep(60)
+            try:
+                with app.app_context():
+                    scheduled = list_content_items_by_statuses(["scheduled"])
+                    now = datetime.now().isoformat()
+                    for item in scheduled:
+                        if item.get("scheduled_at") and item["scheduled_at"] <= now:
+                            try:
+                                stage_publish(item["id"], lambda *a, **kw: None)
+                            except Exception:
+                                update_content_item(item["id"], status="failed")
+            except Exception:
+                pass
+
+    scheduler_thread = threading.Thread(target=scheduling_loop, daemon=True)
+    scheduler_thread.start()
 
     # -- Store for active SSE streams --
     # Maps content_id -> list of queue.Queue objects (one per connected client)
@@ -120,11 +142,11 @@ def create_app():
         items = list_content_items()
         return render_template("dashboard.html", items=items, current_page="dashboard")
 
-    @app.route("/create")
+    @app.route("/cam")
     @login_required
-    def create():
-        """Create: URL/idea input + platform selector + pipeline X-ray."""
-        return render_template("create.html", current_page="create")
+    def cam():
+        """CAM: Content Automation Machine — queue + mini-calendar interface."""
+        return render_template("cam.html", current_page="cam")
 
     @app.route("/content/<int:item_id>")
     @login_required
@@ -135,20 +157,59 @@ def create_app():
             flash("Content item not found", "error")
             return redirect(url_for("dashboard"))
         logs = get_pipeline_logs(item_id)
-        return render_template("content_detail.html", item=item, logs=logs,
-                               current_page="content")
 
-    @app.route("/calendar")
-    @login_required
-    def calendar():
-        """Calendar: monthly publishing schedule."""
-        now = datetime.now()
-        month = request.args.get("month", now.month, type=int)
-        year = request.args.get("year", now.year, type=int)
-        slots = list_schedule_slots(month=month, year=year)
-        return render_template("calendar.html", slots=slots,
-                               current_month=month, current_year=year,
-                               current_page="calendar")
+        # Parse captions JSON into a dict for the template
+        captions_parsed = {}
+        if item.get("captions"):
+            try:
+                captions_parsed = json.loads(item["captions"])
+            except (json.JSONDecodeError, TypeError):
+                captions_parsed = {}
+
+        # Parse stage_durations and stage_costs JSON
+        stage_durations = {}
+        if item.get("stage_durations"):
+            try:
+                stage_durations = json.loads(item["stage_durations"])
+            except (json.JSONDecodeError, TypeError):
+                stage_durations = {}
+
+        stage_costs = {}
+        if item.get("stage_costs"):
+            try:
+                stage_costs = json.loads(item["stage_costs"])
+            except (json.JSONDecodeError, TypeError):
+                stage_costs = {}
+
+        # Build stage_info list for template
+        stages = ["scrape", "script", "image", "video", "caption", "publish"]
+        stage_info = []
+        for s in stages:
+            stage_info.append({
+                "name": s,
+                "duration": stage_durations.get(s),
+                "cost": stage_costs.get(s),
+            })
+
+        # Compute completed, error, skipped stages from logs
+        completed_stages = set()
+        error_stages = set()
+        skipped_stages = set()
+        for log in logs:
+            if log.get("status") == "done":
+                completed_stages.add(log.get("stage", ""))
+            elif log.get("status") == "error":
+                error_stages.add(log.get("stage", ""))
+            elif log.get("status") == "skipped":
+                skipped_stages.add(log.get("stage", ""))
+
+        return render_template("content_detail.html", item=item, logs=logs,
+                               captions_parsed=captions_parsed,
+                               stage_info=stage_info,
+                               completed_stages=completed_stages,
+                               error_stages=error_stages,
+                               skipped_stages=skipped_stages,
+                               current_page="content")
 
     @app.route("/settings")
     @login_required
@@ -161,6 +222,13 @@ def create_app():
             "getlate_api_key": get_setting("getlate_api_key", ""),
             "default_model": get_setting("default_model", "google/gemini-2.5-flash"),
             "default_platform": get_setting("default_platform", "instagram"),
+            "headshot_url": get_setting("headshot_url", ""),
+            "headshot_enabled": get_setting("headshot_enabled", "false"),
+            "r2_account_id": get_setting("r2_account_id", ""),
+            "r2_access_key_id": get_setting("r2_access_key_id", ""),
+            "r2_secret_access_key": get_setting("r2_secret_access_key", ""),
+            "r2_bucket_name": get_setting("r2_bucket_name", ""),
+            "r2_public_url": get_setting("r2_public_url", ""),
         }
         return render_template("settings.html", settings=settings,
                                current_page="settings")
@@ -219,11 +287,130 @@ def create_app():
                 "firecrawl_api_key": "FIRECRAWL_API_KEY",
                 "kie_api_key": "KIE_API_KEY",
                 "getlate_api_key": "GETLATE_API_KEY",
+                "r2_account_id": "R2_ACCOUNT_ID",
+                "r2_access_key_id": "R2_ACCESS_KEY_ID",
+                "r2_secret_access_key": "R2_SECRET_ACCESS_KEY",
+                "r2_bucket_name": "R2_BUCKET_NAME",
+                "r2_public_url": "R2_PUBLIC_URL",
             }
             if key in env_map:
                 os.environ[env_map[key]] = value
 
         return jsonify({"success": True, "message": "Settings saved"})
+
+    # -------------------------------------------------------------------
+    # HEADSHOT UPLOAD
+    # -------------------------------------------------------------------
+
+    @app.route("/api/settings/headshot", methods=["POST"])
+    @login_required
+    def api_headshot_upload():
+        """Upload a headshot image via R2 storage."""
+        if "headshot" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        file = request.files["headshot"]
+        if file.filename == "":
+            return jsonify({"error": "No file selected"}), 400
+        try:
+            from services.r2_storage import upload_headshot
+            file_data = file.read()
+            url = upload_headshot(file_data, file.filename)
+            set_setting("headshot_url", url)
+            return jsonify({"success": True, "url": url})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # -------------------------------------------------------------------
+    # CAM API ROUTES
+    # -------------------------------------------------------------------
+
+    @app.route("/cam/api/queue")
+    @login_required
+    def cam_api_queue():
+        """Return queue items grouped by processing, completed, failed with progress %."""
+        progress_map = {
+            "draft": 0, "scraping": 10, "scripting": 25, "scripted": 40,
+            "imaging": 50, "imaged": 60, "videoing": 70, "videoed": 80,
+            "captioning": 85, "captioned": 90, "uploading": 95,
+            "ready": 100, "scheduled": 100, "published": 100, "failed": 0,
+        }
+        processing_statuses = [
+            "draft", "scraping", "scripting", "scripted", "imaging",
+            "imaged", "videoing", "videoed", "captioning", "captioned", "uploading"
+        ]
+        completed_statuses = ["ready", "scheduled", "published"]
+        failed_statuses = ["failed"]
+
+        processing = list_content_items_by_statuses(processing_statuses)
+        completed = list_content_items_by_statuses(completed_statuses)
+        failed = list_content_items_by_statuses(failed_statuses)
+
+        # Add progress percentage to each item
+        for item in processing:
+            item["progress"] = progress_map.get(item.get("status", ""), 0)
+        for item in completed:
+            item["progress"] = progress_map.get(item.get("status", ""), 100)
+        for item in failed:
+            item["progress"] = 0
+
+        return jsonify({
+            "processing": processing,
+            "completed": completed,
+            "failed": failed,
+            "totals": {
+                "processing": len(processing),
+                "completed": len(completed),
+                "failed": len(failed),
+            }
+        })
+
+    @app.route("/cam/api/calendar")
+    @login_required
+    def cam_api_calendar():
+        """Return calendar counts for a given year/month."""
+        now = datetime.now()
+        year = request.args.get("year", now.year, type=int)
+        month = request.args.get("month", now.month, type=int)
+        counts = get_calendar_counts(year, month)
+        return jsonify(counts)
+
+    @app.route("/cam/api/create", methods=["POST"])
+    @login_required
+    def cam_api_create():
+        """Create content item via CAM — wraps the existing generate endpoint."""
+        return api_generate()
+
+    @app.route("/cam/api/approve/<int:item_id>", methods=["POST"])
+    @login_required
+    def cam_api_approve(item_id):
+        """Approve a content item: set status=scheduled + scheduled_at."""
+        item = get_content_item(item_id)
+        if not item:
+            return jsonify({"error": "Not found"}), 404
+        data = request.json or {}
+        scheduled_at = data.get("scheduled_at") or datetime.now().isoformat()
+        update_content_item(item_id, status="scheduled", scheduled_at=scheduled_at)
+        return jsonify({"success": True, "scheduled_at": scheduled_at})
+
+    @app.route("/cam/api/retry/<int:item_id>", methods=["POST"])
+    @login_required
+    def cam_api_retry(item_id):
+        """Retry a failed content item by resetting status to draft."""
+        item = get_content_item(item_id)
+        if not item:
+            return jsonify({"error": "Not found"}), 404
+        update_content_item(item_id, status="draft")
+        return jsonify({"success": True, "message": f"Item {item_id} reset to draft"})
+
+    @app.route("/cam/api/item/<int:item_id>", methods=["DELETE"])
+    @login_required
+    def cam_api_delete(item_id):
+        """Hard delete a content item."""
+        item = get_content_item(item_id)
+        if not item:
+            return jsonify({"error": "Not found"}), 404
+        delete_content_item(item_id)
+        return jsonify({"success": True, "message": f"Item {item_id} deleted"})
 
     # -------------------------------------------------------------------
     # SSE STREAMING: The heart of the Automation X-ray
