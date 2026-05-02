@@ -9,6 +9,7 @@ You create a task, then poll for the result. The X-ray shows every poll cycle.
 """
 
 import os
+import re
 import time
 import requests
 
@@ -20,6 +21,20 @@ TASK_CREATE_URL = f"{KIE_BASE_URL}/jobs/createTask"
 TASK_STATUS_URL = f"{KIE_BASE_URL}/jobs/recordInfo"
 VIDEO_CREATE_URL = f"{KIE_BASE_URL}/veo/generate"
 VIDEO_STATUS_URL = f"{KIE_BASE_URL}/veo/get-1080p-video"
+
+
+def _clean_prompt(prompt):
+    """Remove markdown formatting that confuses image/video models."""
+    prompt = re.sub(r'\*\*(.+?)\*\*', r'\1', prompt)   # **bold**
+    prompt = re.sub(r'__(.+?)__', r'\1', prompt)        # __bold__
+    prompt = re.sub(r'\*(.+?)\*', r'\1', prompt)        # *italic*
+    prompt = re.sub(r'_(.+?)_', r'\1', prompt)          # _italic_
+    prompt = re.sub(r'^#+\s*', '', prompt, flags=re.MULTILINE)  # # headers
+    prompt = re.sub(r'`(.+?)`', r'\1', prompt)          # `backticks`
+    prompt = prompt.replace('\t', ' ')                   # tabs → spaces
+    prompt = re.sub(r'\n{3,}', '\n\n', prompt)           # collapse 3+ newlines
+    prompt = prompt.replace('"', "'")                    # " → '
+    return prompt.strip()
 
 
 def _get_headers():
@@ -55,6 +70,7 @@ def generate_image(prompt, emit_event=None):
         dict with: image_url, task_id, duration, cost
     """
     emit = emit_event or (lambda *a, **kw: None)
+    prompt = _clean_prompt(prompt)
     headers = _get_headers()
 
     if not headers:
@@ -78,7 +94,8 @@ def generate_image(prompt, emit_event=None):
                 "model": "nano-banana-pro",
                 "input": {
                     "prompt": prompt,
-                    "image_size": "1024x1024"
+                    "aspect_ratio": "9:16",
+                    "resolution": "1K"
                 }
             },
             timeout=30
@@ -194,6 +211,7 @@ def generate_video(prompt, emit_event=None):
         dict with: video_url, task_id, duration, cost
     """
     emit = emit_event or (lambda *a, **kw: None)
+    prompt = _clean_prompt(prompt)
     headers = _get_headers()
 
     if not headers:
@@ -300,6 +318,144 @@ def generate_video(prompt, emit_event=None):
 
                 emit("video", "progress",
                      f"Video is done! Took {duration}s — much longer than the image, right? That's normal. Downloading now...")
+
+                return {
+                    "video_url": video_url,
+                    "task_id": task_id,
+                    "duration": duration,
+                    "cost": cost,
+                    "demo": False
+                }
+
+            elif state in ("failed", "failure", "error", "cancelled"):
+                error_msg = data.get("errorMessage") or data.get("errorMsg") or data.get("failMsg", "Unknown error")
+                emit("video", "error", f"Video generation failed: {error_msg}")
+                raise Exception(f"Video generation failed: {error_msg}")
+
+        except requests.exceptions.RequestException as e:
+            emit("video", "progress", f"Poll request failed (attempt {attempt}), retrying...")
+
+
+# ---------------------------------------------------------------------------
+# generate_video_with_reference() — Video with headshot reference image
+# ---------------------------------------------------------------------------
+def generate_video_with_reference(prompt, reference_image_url, emit_event=None):
+    """
+    Generate a video using Veo 3.1 with a reference headshot image.
+
+    Same async polling pattern as generate_video(), but includes a reference
+    image so the generated video features the person from the headshot.
+
+    Args:
+        prompt: Video description prompt
+        reference_image_url: URL of the headshot/reference image
+        emit_event: Callback for SSE logging
+
+    Returns:
+        dict with: video_url, task_id, duration, cost
+    """
+    emit = emit_event or (lambda *a, **kw: None)
+    prompt = _clean_prompt(prompt)
+    headers = _get_headers()
+
+    if not headers:
+        emit("video", "progress", "No Kie.ai API key — using a placeholder video. Add your key in Settings!")
+        return {
+            "video_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Demo+Video+With+Headshot",
+            "task_id": "demo_video_ref_task",
+            "duration": 0,
+            "cost": 0.0,
+            "demo": True
+        }
+
+    # -- Step 1: Create the video task with reference image --
+    emit("video", "progress", "Sending prompt + headshot reference to Kie.ai's Veo 3.1. The AI will generate a video featuring the person from the headshot.")
+
+    try:
+        create_response = requests.post(
+            VIDEO_CREATE_URL,
+            headers=headers,
+            json={
+                "prompt": prompt,
+                "aspect_ratio": "9:16",
+                "model": "veo3_fast",
+                "reference_images": [reference_image_url]
+            },
+            timeout=30
+        )
+        create_response.raise_for_status()
+        create_data = create_response.json()
+
+        data = create_data.get("data", create_data)
+        task_id = data.get("taskId") or data.get("task_id") or create_data.get("taskId")
+        if not task_id:
+            raise Exception(f"No task_id in response: {create_data}")
+
+        emit("video", "progress", f"Video task created with headshot reference! ID: {task_id}. Polling every 20 seconds.")
+
+    except requests.exceptions.RequestException as e:
+        emit("video", "error", f"Failed to create video task: {str(e)}")
+        raise
+
+    # -- Step 2: Poll for completion --
+    start_time = time.time()
+    poll_interval = 20
+    timeout = 300
+    attempt = 0
+
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed > timeout:
+            emit("video", "error", f"Video generation timed out after {timeout}s")
+            raise Exception(f"Video generation timed out after {timeout} seconds")
+
+        attempt += 1
+        time.sleep(poll_interval)
+
+        try:
+            status_response = requests.get(
+                VIDEO_STATUS_URL,
+                headers=headers,
+                params={"taskId": task_id},
+                timeout=15
+            )
+            status_response.raise_for_status()
+            status_data = status_response.json()
+
+            data = status_data.get("data", status_data)
+            success_flag = data.get("successFlag", 0)
+            state = data.get("state", "unknown")
+            if success_flag == 1:
+                state = "success"
+            elif success_flag in (2, 3):
+                state = "failed"
+            elif success_flag == 0 and state == "unknown":
+                state = "processing"
+
+            emit("video", "polling",
+                 f"Checking on our headshot video... attempt #{attempt} — status: \"{state}\" ({round(elapsed)}s so far). Videos can take 1-5 minutes.",
+                 {"attempt": attempt, "state": state, "elapsed": round(elapsed, 1)})
+
+            if state in ("success", "completed", "done"):
+                video_url = ""
+                if data.get("response") and data["response"].get("resultUrls"):
+                    video_url = data["response"]["resultUrls"][0]
+                elif data.get("videoUrl"):
+                    video_url = data["videoUrl"]
+                if not video_url:
+                    import json
+                    result_json_str = data.get("resultJson", "")
+                    if result_json_str:
+                        result_json = json.loads(result_json_str)
+                        result_urls = result_json.get("resultUrls", [])
+                        if result_urls:
+                            video_url = result_urls[0]
+
+                duration = round(time.time() - start_time, 1)
+                cost = 0.30  # Higher cost for reference video
+
+                emit("video", "progress",
+                     f"Headshot video is done! Took {duration}s. Downloading now...")
 
                 return {
                     "video_url": video_url,
