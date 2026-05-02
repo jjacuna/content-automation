@@ -23,12 +23,14 @@
                 <span class="badge badge-{{ item.platform or 'instagram' }}">
                     {{ (item.platform or 'instagram')|capitalize }}
                 </span>
-                {% if item.status in ['processing', 'scraping', 'scripting', 'imaging', 'videoing'] %}
+                {% if item.status in ['processing', 'scraping', 'scripting', 'imaging', 'videoing', 'captioning', 'uploading'] %}
                 <span class="badge badge-processing">Processing</span>
-                {% elif item.status == 'ready' or item.status == 'complete' %}
+                {% elif item.status in ['ready', 'complete', 'captioned'] %}
                 <span class="badge badge-ready">Ready</span>
                 {% elif item.status == 'published' %}
                 <span class="badge badge-published">Published</span>
+                {% elif item.status == 'failed' %}
+                <span class="badge badge-error">Error</span>
                 {% elif item.status == 'error' %}
                 <span class="badge badge-error">Error</span>
                 {% elif item.status == 'scheduled' %}
@@ -40,10 +42,14 @@
         </div>
         <div class="flex gap-2">
             <button class="btn btn-primary btn-sm" @click="showScheduleModal = true">
-                <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
-                Schedule
+                <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                Approve
             </button>
-            <button class="btn btn-outline btn-sm" @click="publishNow()">
+            <button class="btn btn-outline btn-sm" @click="retryItem()">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                Retry
+            </button>
+            <button class="btn btn-ghost btn-sm" @click="publishNow()">
                 <i data-lucide="send" class="w-3.5 h-3.5"></i>
                 Publish Now
             </button>
@@ -119,6 +125,26 @@
             </div>
             {% endif %}
 
+            <!-- R2 Storage URLs -->
+            {% if item.r2_image_url or item.r2_video_url %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <div class="card-title flex items-center gap-2">
+                        <i data-lucide="cloud" class="w-4 h-4" style="color: var(--gold);"></i>
+                        R2 Storage URLs
+                    </div>
+                </div>
+                <div class="space-y-2 text-xs" style="font-family: 'SF Mono', monospace; word-break: break-all;">
+                    {% if item.r2_image_url %}
+                    <div><span style="color: var(--text-subtle);">Image:</span> <a href="{{ item.r2_image_url }}" target="_blank" style="color: var(--gold);">{{ item.r2_image_url }}</a></div>
+                    {% endif %}
+                    {% if item.r2_video_url %}
+                    <div><span style="color: var(--text-subtle);">Video:</span> <a href="{{ item.r2_video_url }}" target="_blank" style="color: var(--gold);">{{ item.r2_video_url }}</a></div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Captions -->
             {% if item.captions %}
             <div class="card mb-4" x-data="{ captionTab: '{{ item.platform or 'instagram' }}' }">
@@ -153,38 +179,38 @@
 
         <!-- RIGHT: Pipeline History + Metadata -->
         <div>
-            <!-- Mini Pipeline Progress -->
+            <!-- Pipeline Journey (Stage Timeline) -->
             <div class="card mb-4">
                 <div class="card-header">
                     <div class="card-title flex items-center gap-2">
                         <i data-lucide="activity" class="w-4 h-4" style="color: var(--gold);"></i>
-                        Pipeline Status
+                        Pipeline Journey
                     </div>
                 </div>
-                <div class="pipeline-bar" style="padding: 16px 8px; justify-content: flex-start;">
-                    {% set stage_names = ['scrape', 'script', 'image', 'video', 'caption'] %}
-                    {% for stage_name in stage_names %}
+                <div class="stage-timeline">
+                    {% for stage in stage_info %}
                     {% if not loop.first %}
-                    <div class="pipeline-connector" style="width: 24px;"
-                         {% if stage_name in completed_stages %}class="completed"{% endif %}></div>
+                    <div class="stage-connector {% if stage.name in completed_stages %}completed{% endif %}"></div>
                     {% endif %}
-                    <div class="pipeline-stage {% if stage_name in completed_stages %}completed{% elif stage_name in error_stages %}error{% elif stage_name in skipped_stages %}skipped{% elif stage_name == active_stage %}active{% else %}waiting{% endif %}">
-                        <div class="pipeline-node" style="width: 32px; height: 32px;">
-                            {% if stage_name in completed_stages %}
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            {% elif stage_name in error_stages %}
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
-                            </svg>
-                            {% elif stage_name in skipped_stages %}
-                            <span style="font-size: 10px;">&#8212;</span>
+                    <div class="stage-node {% if stage.name in completed_stages %}completed{% elif stage.name in error_stages %}error{% elif stage.name in skipped_stages %}skipped{% else %}waiting{% endif %}">
+                        <div class="stage-circle">
+                            {% if stage.name in completed_stages %}
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                            {% elif stage.name in error_stages %}
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            {% elif stage.name in skipped_stages %}
+                            <span style="font-size: 10px;">&mdash;</span>
                             {% else %}
                             <span style="font-size: 11px; color: var(--text-subtle);">{{ loop.index }}</span>
                             {% endif %}
                         </div>
-                        <span class="pipeline-stage-label" style="font-size: 10px;">{{ stage_name|capitalize }}</span>
+                        <span class="stage-label">{{ stage.name|capitalize }}</span>
+                        {% if stage.duration %}
+                        <span class="stage-duration">{{ stage.duration }}s</span>
+                        {% endif %}
+                        {% if stage.cost %}
+                        <span class="stage-cost">${{ "%.4f"|format(stage.cost) }}</span>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -230,7 +256,7 @@
             </div>
 
             <!-- Cost Breakdown -->
-            {% if item.cost_total %}
+            {% if item.cost_total or stage_info %}
             <div class="card mb-4">
                 <div class="card-header">
                     <div class="card-title flex items-center gap-2">
@@ -239,9 +265,17 @@
                     </div>
                 </div>
                 <div class="space-y-2 text-sm" style="font-family: 'SF Mono', 'Consolas', monospace;">
+                    {% for stage in stage_info %}
+                    {% if stage.cost %}
                     <div class="flex justify-between" style="color: var(--text-muted);">
-                        <span>Total</span>
-                        <span style="color: var(--gold); font-weight: 700;">${{ "%.4f"|format(item.cost_total) }}</span>
+                        <span>{{ stage.name|capitalize }}</span>
+                        <span>${{ "%.4f"|format(stage.cost) }}</span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    <div class="flex justify-between pt-2" style="border-top: 1px solid var(--border);">
+                        <span style="color: var(--text-primary); font-weight: 600;">Total</span>
+                        <span style="color: var(--gold); font-weight: 700;">${{ "%.4f"|format(item.cost_total or 0) }}</span>
                     </div>
                 </div>
             </div>
@@ -286,6 +320,12 @@
                         <span style="color: var(--success);">Included</span>
                     </div>
                     {% endif %}
+                    {% if item.headshot_used %}
+                    <div class="flex justify-between">
+                        <span style="color: var(--text-subtle);">Headshot</span>
+                        <span style="color: var(--gold);">Used in video</span>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -308,19 +348,20 @@
         </div>
     </div>
 
-    <!-- Schedule Modal -->
+    <!-- Approve / Schedule Modal -->
     <div x-show="showScheduleModal" class="modal-overlay" x-transition.opacity @click.self="showScheduleModal = false">
         <div class="modal" @click.stop>
-            <div class="modal-title">Schedule Post</div>
+            <div class="modal-title">Approve & Schedule</div>
             <div class="mb-4">
-                <label class="input-label">Date & Time</label>
+                <label class="input-label">Schedule Date & Time (optional)</label>
                 <input type="datetime-local" class="input" x-model="scheduleDate">
+                <p class="text-xs mt-2" style="color: var(--text-subtle);">Leave empty to approve without scheduling.</p>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-ghost" @click="showScheduleModal = false">Cancel</button>
-                <button class="btn btn-primary" @click="schedulePost()">
-                    <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
-                    Schedule
+                <button class="btn btn-primary" @click="approveItem()">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                    Approve
                 </button>
             </div>
         </div>
@@ -358,13 +399,41 @@ function detailApp() {
             showToast('Publishing... (connect GetLate.dev in Settings)', 'warning');
         },
 
-        schedulePost() {
-            if (!this.scheduleDate) {
-                showToast('Pick a date and time', 'warning');
-                return;
+        approveItem() {
+            const payload = {};
+            if (this.scheduleDate) {
+                payload.scheduled_at = this.scheduleDate;
             }
-            showToast('Scheduled for ' + this.scheduleDate, 'success');
-            this.showScheduleModal = false;
+            fetch('/cam/api/approve/{{ item.id }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast(data.error, 'error');
+                    } else {
+                        showToast('Content approved' + (this.scheduleDate ? ' and scheduled' : ''), 'success');
+                        this.showScheduleModal = false;
+                        setTimeout(() => location.reload(), 800);
+                    }
+                })
+                .catch(() => showToast('Failed to approve', 'error'));
+        },
+
+        retryItem() {
+            fetch('/cam/api/retry/{{ item.id }}', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast(data.error, 'error');
+                    } else {
+                        showToast('Retrying pipeline...', 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    }
+                })
+                .catch(() => showToast('Failed to retry', 'error'));
         }
     };
 }
