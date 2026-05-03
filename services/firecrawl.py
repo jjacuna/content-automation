@@ -54,11 +54,21 @@ def scrape_url(url, emit_event=None):
         fc = FirecrawlApp(api_key=api_key)
 
         emit("scrape", "progress", "FireCrawl is reading the webpage now... (this usually takes 1-3 seconds)")
-        result = fc.scrape(url, formats=["markdown"])
 
-        # v4 returns a Document object — access attributes directly
-        markdown = getattr(result, "markdown", "") or ""
-        metadata = getattr(result, "metadata", {}) or {}
+        # Handle both firecrawl-py v1 (scrape_url) and v4+ (scrape)
+        if hasattr(fc, "scrape_url"):
+            result = fc.scrape_url(url, params={"formats": ["markdown"]})
+        else:
+            result = fc.scrape(url, formats=["markdown"])
+
+        # v1 returns dict, v4 returns Document object — handle both
+        if isinstance(result, dict):
+            markdown = result.get("markdown", "")
+            metadata = result.get("metadata", {})
+        else:
+            markdown = getattr(result, "markdown", "") or ""
+            metadata = getattr(result, "metadata", {}) or {}
+
         if isinstance(metadata, dict):
             title = metadata.get("title", metadata.get("ogTitle", "Untitled Article"))
         else:
