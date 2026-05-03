@@ -54,12 +54,15 @@ def scrape_url(url, emit_event=None):
         fc = FirecrawlApp(api_key=api_key)
 
         emit("scrape", "progress", "FireCrawl is reading the webpage now... (this usually takes 1-3 seconds)")
-        result = fc.scrape_url(url, params={"formats": ["markdown"]})
+        result = fc.scrape(url, formats=["markdown"])
 
-        # Extract the content from the response
-        markdown = result.get("markdown", "")
-        metadata = result.get("metadata", {})
-        title = metadata.get("title", metadata.get("ogTitle", "Untitled Article"))
+        # v4 returns a Document object — access attributes directly
+        markdown = getattr(result, "markdown", "") or ""
+        metadata = getattr(result, "metadata", {}) or {}
+        if isinstance(metadata, dict):
+            title = metadata.get("title", metadata.get("ogTitle", "Untitled Article"))
+        else:
+            title = getattr(metadata, "title", None) or getattr(metadata, "ogTitle", "Untitled Article")
 
         # Calculate word count
         word_count = len(markdown.split()) if markdown else 0
