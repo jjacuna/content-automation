@@ -314,9 +314,12 @@ def create_app():
         try:
             from services.r2_storage import upload_headshot
             file_data = file.read()
-            url = upload_headshot(file_data, file.filename)
-            set_setting("headshot_url", url)
-            return jsonify({"success": True, "url": url})
+            result = upload_headshot(file_data, file.filename)
+            if result.get("error"):
+                return jsonify({"error": result["error"]}), 500
+            headshot_url = result["url"]
+            set_setting("headshot_url", headshot_url)
+            return jsonify({"success": True, "url": headshot_url})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
