@@ -66,13 +66,13 @@ def publish_post(content_item, platforms=None, emit_event=None):
         platforms = [content_item.get("platform", "instagram")]
 
     if not headers:
-        emit("publish", "progress", "No GETLATE_API_KEY — simulating publish")
+        emit("publish", "progress", "No GetLate API key set yet — simulating publish. To publish for real, get your key from https://getlate.dev and paste it in Settings > GetLate > API Key.")
         return {
             "post_id": "demo_post_id",
             "platforms_published": platforms,
             "status": "demo",
             "demo": True,
-            "message": "Set your GETLATE_API_KEY in Settings to publish for real."
+            "message": "Get your key from https://getlate.dev and add it in Settings."
         }
 
     emit("publish", "progress", f"Publishing to {', '.join(platforms)} via GetLate.dev...")

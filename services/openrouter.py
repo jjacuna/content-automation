@@ -50,7 +50,14 @@ def _get_client():
 def _demo_response(description):
     """Return a mock response when no API key is configured."""
     return {
-        "text": f"[DEMO MODE] {description} — Set your OPENROUTER_API_KEY in Settings to generate real content.",
+        "text": (
+            f"Hey! You're running in demo mode right now.\n\n"
+            f"To get real AI-generated content, grab a free API key from OpenRouter:\n"
+            f"1. Go to https://openrouter.ai/keys\n"
+            f"2. Create an account and copy your key\n"
+            f"3. Paste it in Settings > OpenRouter > API Key\n\n"
+            f"Once you do that, this will generate real scripts, captions, and image prompts!"
+        ),
         "model": "demo",
         "tokens_in": 0,
         "tokens_out": 0,

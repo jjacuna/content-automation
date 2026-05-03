@@ -74,9 +74,9 @@ def generate_image(prompt, emit_event=None):
     headers = _get_headers()
 
     if not headers:
-        emit("image", "progress", "No Kie.ai API key — using a placeholder image. Add your key in Settings to generate real AI images!")
+        emit("image", "progress", "No Kie.ai API key set yet — showing a placeholder image. To generate real AI images, get your key from https://kie.ai and paste it in Settings > Kie.ai > API Key.")
         return {
-            "image_url": "https://placehold.co/1024x1024/17181C/C7A35A?text=Demo+Image",
+            "image_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Add+Kie.ai+Key+in+Settings",
             "task_id": "demo_task",
             "duration": 0,
             "cost": 0.0,
@@ -215,9 +215,9 @@ def generate_video(prompt, emit_event=None):
     headers = _get_headers()
 
     if not headers:
-        emit("video", "progress", "No Kie.ai API key — using a placeholder video. Add your key in Settings!")
+        emit("video", "progress", "No Kie.ai API key set yet — showing a placeholder. To generate real AI videos, get your key from https://kie.ai and paste it in Settings > Kie.ai > API Key.")
         return {
-            "video_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Demo+Video",
+            "video_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Add+Kie.ai+Key+in+Settings",
             "task_id": "demo_video_task",
             "duration": 0,
             "cost": 0.0,
@@ -359,9 +359,9 @@ def generate_video_with_reference(prompt, reference_image_url, emit_event=None):
     headers = _get_headers()
 
     if not headers:
-        emit("video", "progress", "No Kie.ai API key — using a placeholder video. Add your key in Settings!")
+        emit("video", "progress", "No Kie.ai API key set yet — showing a placeholder. To generate real AI videos, get your key from https://kie.ai and paste it in Settings > Kie.ai > API Key.")
         return {
-            "video_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Demo+Video+With+Headshot",
+            "video_url": "https://placehold.co/1080x1920/17181C/C7A35A?text=Add+Kie.ai+Key+in+Settings",
             "task_id": "demo_video_ref_task",
             "duration": 0,
             "cost": 0.0,
