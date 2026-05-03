@@ -494,7 +494,7 @@ def create_app():
             """Yield SSE events from the queue."""
             try:
                 while True:
-                    event_str = event_queue.get(timeout=300)  # 5-minute timeout
+                    event_str = event_queue.get(timeout=900)  # 15-minute timeout (video can take 10min)  # 5-minute timeout
                     if event_str is None:
                         break
                     yield f"data: {event_str}\n\n"
@@ -555,7 +555,7 @@ def create_app():
         def stream():
             try:
                 while True:
-                    event_str = event_queue.get(timeout=300)
+                    event_str = event_queue.get(timeout=900)  # 15-minute timeout (video can take 10min)
                     if event_str is None:
                         break
                     yield f"data: {event_str}\n\n"

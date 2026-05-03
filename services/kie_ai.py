@@ -255,16 +255,16 @@ def generate_video(prompt, emit_event=None):
 
     # -- Step 2: Poll for completion --
     # Video polls every 20 seconds (much slower than images!)
-    # Timeout after 300 seconds (5 minutes)
+    # Timeout after 600 seconds (10 minutes) — Veo 3.1 can take a while
     start_time = time.time()
     poll_interval = 20
-    timeout = 300
+    timeout = 600
     attempt = 0
 
     while True:
         elapsed = time.time() - start_time
         if elapsed > timeout:
-            emit("video", "error", f"Video generation timed out after {timeout}s")
+            emit("video", "error", f"Video generation timed out after {int(timeout/60)} minutes. This can happen when Kie.ai is under heavy load — try again in a few minutes.")
             raise Exception(f"Video generation timed out after {timeout} seconds")
 
         attempt += 1
@@ -400,14 +400,14 @@ def generate_video_with_reference(prompt, reference_image_url, emit_event=None):
     # -- Step 2: Poll for completion --
     start_time = time.time()
     poll_interval = 20
-    timeout = 300
+    timeout = 600
     attempt = 0
 
     while True:
         elapsed = time.time() - start_time
         if elapsed > timeout:
-            emit("video", "error", f"Video generation timed out after {timeout}s")
-            raise Exception(f"Video generation timed out after {timeout} seconds")
+            emit("video", "error", f"Reference video timed out after {int(timeout/60)} minutes. This can happen when Kie.ai is under heavy load — try again in a few minutes.")
+            raise Exception(f"Reference video timed out after {timeout} seconds")
 
         attempt += 1
         time.sleep(poll_interval)
