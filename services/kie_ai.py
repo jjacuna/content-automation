@@ -104,7 +104,7 @@ def generate_image(prompt, emit_event=None):
         create_data = create_response.json()
 
         # Kie.ai nests the taskId inside a "data" wrapper
-        data = create_data.get("data", create_data)
+        data = create_data.get("data") or create_data
         task_id = data.get("taskId") or data.get("task_id") or create_data.get("taskId")
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
@@ -142,7 +142,7 @@ def generate_image(prompt, emit_event=None):
             status_data = status_response.json()
 
             # Kie.ai nests status under "data" wrapper
-            data = status_data.get("data", status_data)
+            data = status_data.get("data") or status_data
             state = (data.get("state") or status_data.get("state", "unknown")).lower()
 
             # -- Emit polling events (the X-ray magic!) --
@@ -242,7 +242,7 @@ def generate_video(prompt, emit_event=None):
         create_data = create_response.json()
 
         # Kie.ai nests the taskId inside a "data" wrapper
-        data = create_data.get("data", create_data)
+        data = create_data.get("data") or create_data
         task_id = data.get("taskId") or data.get("task_id") or create_data.get("taskId")
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
@@ -281,9 +281,9 @@ def generate_video(prompt, emit_event=None):
             status_data = status_response.json()
 
             # Veo uses data.successFlag: 0=generating, 1=success, 2/3=failed
-            data = status_data.get("data", status_data)
-            success_flag = data.get("successFlag", 0)
-            state = data.get("state", "unknown")
+            data = status_data.get("data") or status_data
+            success_flag = data.get("successFlag", 0) if isinstance(data, dict) else 0
+            state = data.get("state", "unknown") if isinstance(data, dict) else "unknown"
             if success_flag == 1:
                 state = "success"
             elif success_flag in (2, 3):
@@ -386,7 +386,7 @@ def generate_video_with_reference(prompt, reference_image_url, emit_event=None):
         create_response.raise_for_status()
         create_data = create_response.json()
 
-        data = create_data.get("data", create_data)
+        data = create_data.get("data") or create_data
         task_id = data.get("taskId") or data.get("task_id") or create_data.get("taskId")
         if not task_id:
             raise Exception(f"No task_id in response: {create_data}")
@@ -422,9 +422,9 @@ def generate_video_with_reference(prompt, reference_image_url, emit_event=None):
             status_response.raise_for_status()
             status_data = status_response.json()
 
-            data = status_data.get("data", status_data)
-            success_flag = data.get("successFlag", 0)
-            state = data.get("state", "unknown")
+            data = status_data.get("data") or status_data
+            success_flag = data.get("successFlag", 0) if isinstance(data, dict) else 0
+            state = data.get("state", "unknown") if isinstance(data, dict) else "unknown"
             if success_flag == 1:
                 state = "success"
             elif success_flag in (2, 3):
