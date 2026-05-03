@@ -148,9 +148,12 @@ def run_pipeline(content_id, emit_event):
     except Exception as e:
         # If any stage fails, mark the item as failed
         update_content_item(content_id, status="failed")
-        emit_event("pipeline", "error",
-                   f"Something went wrong: {str(e)}. This usually means an API key is missing or a service is temporarily down. Check your Settings page.",
-                   {"error": str(e)})
+        error_msg = str(e)
+        if "timed out" in error_msg.lower():
+            friendly = f"Pipeline stopped: {error_msg}"
+        else:
+            friendly = f"Something went wrong: {error_msg}. Check your API keys in Settings, or try again in a few minutes."
+        emit_event("pipeline", "error", friendly, {"error": error_msg})
 
 
 # ---------------------------------------------------------------------------

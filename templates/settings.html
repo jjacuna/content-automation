@@ -182,7 +182,7 @@
                 <input :type="services.kie.showKey ? 'text' : 'password'"
                        class="input" style="padding-right: 42px;"
                        x-model="services.kie.key"
-                       placeholder="Your Kie.ai API key">
+                       placeholder="Bearer your-api-key-here">
                 <button class="input-toggle" @click="services.kie.showKey = !services.kie.showKey">
                     <i x-show="!services.kie.showKey" data-lucide="eye" class="w-4 h-4"></i>
                     <i x-show="services.kie.showKey" data-lucide="eye-off" class="w-4 h-4"></i>
